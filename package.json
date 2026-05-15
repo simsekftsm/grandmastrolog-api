@@ -11,7 +11,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@groq-sdk": "latest",
+    "groq-sdk": "latest",
     "cors": "latest",
     "dotenv": "latest",
     "express": "latest",
