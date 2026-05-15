@@ -1,0 +1,177 @@
+openapi: 3.1.0
+info:
+  title: GrandMastrolog Learning API
+  version: 1.0.0
+servers:
+  - url: https://YOUR-RAILWAY-DOMAIN.up.railway.app
+paths:
+  /health:
+    get:
+      operationId: healthCheck
+      summary: Check API health
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  service:
+                    type: string
+  /context:
+    get:
+      operationId: getLearningContext
+      summary: Get current GrandMastrolog learning context
+      security:
+        - GmSecret: []
+      parameters:
+        - in: query
+          name: user_id
+          schema:
+            type: string
+          required: false
+      responses:
+        "200":
+          description: Learning context
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  learning_enabled:
+                    type: boolean
+                  gm_runtime_context:
+                    type: string
+  /feedback:
+    post:
+      operationId: addFeedback
+      summary: Add feedback and generate active calibration note
+      security:
+        - GmSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                user_id:
+                  type: string
+                  default: default
+                category:
+                  type: string
+                  default: general
+                message:
+                  type: string
+      responses:
+        "200":
+          description: Feedback stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  learned:
+                    type: boolean
+  /learn:
+    post:
+      operationId: addManualLearning
+      summary: Add manual learning note
+      security:
+        - GmSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                user_id:
+                  type: string
+                  default: default
+                type:
+                  type: string
+                  default: manual
+                content:
+                  type: string
+      responses:
+        "200":
+          description: Learning note stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  learned:
+                    type: boolean
+  /learning/pause:
+    post:
+      operationId: pauseLearning
+      summary: Pause learning mode
+      security:
+        - GmSecret: []
+      responses:
+        "200":
+          description: Paused
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  learning_enabled:
+                    type: boolean
+  /learning/resume:
+    post:
+      operationId: resumeLearning
+      summary: Resume learning mode
+      security:
+        - GmSecret: []
+      responses:
+        "200":
+          description: Resumed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  learning_enabled:
+                    type: boolean
+  /learning/status:
+    get:
+      operationId: getLearningStatus
+      summary: Get learning mode status
+      security:
+        - GmSecret: []
+      responses:
+        "200":
+          description: Learning status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  learning_enabled:
+                    type: boolean
+components:
+  securitySchemes:
+    GmSecret:
+      type: apiKey
+      in: header
+      name: x-gm-secret

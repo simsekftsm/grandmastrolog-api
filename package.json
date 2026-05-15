@@ -1,0 +1,21 @@
+{
+  "name": "grandmastrolog-api",
+  "version": "1.0.0",
+  "description": "GrandMastrolog controllable learning memory API for Custom GPTs and open-source AI clients.",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@groq/sdk": "latest",
+    "cors": "latest",
+    "dotenv": "latest",
+    "express": "latest",
+    "helmet": "latest",
+    "pg": "latest"
+  }
+}
