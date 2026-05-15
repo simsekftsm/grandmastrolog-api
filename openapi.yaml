@@ -3,7 +3,7 @@ info:
   title: GrandMastrolog Learning API
   version: 1.0.0
 servers:
-  - url: https://YOUR-RAILWAY-DOMAIN.up.railway.app
+  - url: https://grandmastrolog-api-production.up.railway.app
 paths:
   /health:
     get:
