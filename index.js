@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import pg from 'pg';
-import Groq from '@groq/sdk';
+import Groq from 'groq-sdk';
 
 const { Pool } = pg;
 const app = express();
