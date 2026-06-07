@@ -150,17 +150,70 @@ app.post('/learning/resume', requireSecret, async (_req, res) => {
 
 app.get('/context', requireSecret, async (req, res) => {
   const user_id = String(req.query.user_id || 'default');
+
+  const limitRaw = Number(req.query.limit || 20);
+  const offsetRaw = Number(req.query.offset || 0);
+
+  const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 20, 1), 50);
+  const offset = Math.max(Number.isFinite(offsetRaw) ? offsetRaw : 0, 0);
+
+  const enabledOnly = String(req.query.enabled_only ?? 'true') !== 'false';
+  const summaryOnly = String(req.query.summary_only ?? 'true') !== 'false';
+  const typeFilter = req.query.type ? String(req.query.type) : null;
+
   const enabled = (await getSetting('learning_enabled', 'true')) === 'true';
-  const memories = enabled ? await getMemories(user_id) : [];
+
+  let allMemories = enabled ? await getMemories(user_id) : [];
+
+  if (enabledOnly) {
+    allMemories = allMemories.filter(m => m.enabled !== false);
+  }
+
+  if (typeFilter) {
+    allMemories = allMemories.filter(m => String(m.type || '') === typeFilter);
+  }
+
+  const total = allMemories.length;
+  const page = allMemories.slice(offset, offset + limit);
+
+  const memories = page.map(m => {
+    const content = String(m.content || '');
+
+    const base = {
+      id: String(m.id),
+      user_id: String(m.user_id || user_id),
+      type: String(m.type || 'manual'),
+      enabled: m.enabled !== false,
+      created_at: m.created_at || null,
+      updated_at: m.updated_at || null
+    };
+
+    if (summaryOnly) {
+      base.content_preview = content.slice(0, 300);
+    } else {
+      base.content = content.slice(0, 2000);
+    }
+
+    return base;
+  });
 
   const instruction = enabled && memories.length
-    ? memories.map(m => `- ${m.content}`).join('\n')
+    ? memories
+        .map(m => `- [${m.id}] ${m.type}: ${m.content_preview || m.content || ''}`)
+        .join('\n')
+        .slice(0, 3000)
     : 'Öğrenme modu kapalı veya kayıtlı aktif kalibrasyon yok. Ana GM promptu aynen uygulanır.';
 
   res.json({
     ok: true,
     learning_enabled: enabled,
     user_id,
+    limit,
+    offset,
+    count: memories.length,
+    total,
+    has_more: offset + memories.length < total,
+    next_offset: offset + memories.length < total ? offset + memories.length : null,
     gm_runtime_context: instruction,
     memories
   });
