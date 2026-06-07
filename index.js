@@ -468,6 +468,108 @@ app.post('/memory/bulk-disable', requireSecret, async (req, res) => {
     });
   }
 });
+app.post('/memory/upsert-active-context', requireSecret, async (req, res) => {
+  if (!pool) {
+    return res.status(500).json({
+      ok: false,
+      error: 'DATABASE_URL is not configured.'
+    });
+  }
+
+  const {
+    user_id = 'default',
+    type = 'owner_active_compact_context',
+    content
+  } = req.body || {};
+
+  if (!content || typeof content !== 'string') {
+    return res.status(400).json({
+      ok: false,
+      error: 'content is required.'
+    });
+  }
+
+  try {
+    const existing = await pool.query(
+      `
+      SELECT id
+      FROM gm_memory
+      WHERE user_id=$1 AND type=$2 AND enabled=true
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+      `,
+      [user_id, type]
+    );
+
+    let memory;
+
+    if (existing.rows[0]?.id) {
+      const activeId = existing.rows[0].id;
+
+      await pool.query(
+        `
+        UPDATE gm_memory
+        SET enabled=false
+        WHERE user_id=$1 AND type=$2 AND enabled=true AND id<>$3
+        `,
+        [user_id, type, activeId]
+      );
+
+      const updated = await pool.query(
+        `
+        UPDATE gm_memory
+        SET content=$1
+        WHERE id=$2
+        RETURNING id, user_id, type, content, enabled, created_at
+        `,
+        [content, activeId]
+      );
+
+      memory = updated.rows[0];
+    } else {
+      const inserted = await pool.query(
+        `
+        INSERT INTO gm_memory (user_id, type, content, enabled)
+        VALUES ($1, $2, $3, true)
+        RETURNING id, user_id, type, content, enabled, created_at
+        `,
+        [user_id, type, content]
+      );
+
+      memory = inserted.rows[0];
+    }
+
+    await pool.query(
+      `
+      UPDATE gm_memory
+      SET enabled=false
+      WHERE user_id=$1 AND type=$2 AND enabled=true AND id<>$3
+      `,
+      [user_id, type, memory.id]
+    );
+
+    return res.json({
+      ok: true,
+      upserted: true,
+      memory: {
+        id: String(memory.id),
+        user_id: memory.user_id,
+        type: memory.type,
+        enabled: memory.enabled,
+        created_at: memory.created_at,
+        content_preview: String(memory.content || '').slice(0, 300)
+      }
+    });
+  } catch (err) {
+    console.error('upsert-active-context error:', err);
+
+    return res.status(500).json({
+      ok: false,
+      error: 'Upsert active context failed.',
+      detail: err.message
+    });
+  }
+});
 
 initDb()
   .then(() => {
