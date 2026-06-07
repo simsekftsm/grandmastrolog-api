@@ -149,6 +149,10 @@ app.post('/learning/resume', requireSecret, async (_req, res) => {
 });
 
 app.get('/context', requireSecret, async (req, res) => {
+  if (!pool) {
+    return res.status(500).json({ ok: false, error: 'DATABASE_URL is not configured.' });
+  }
+
   const user_id = String(req.query.user_id || 'default');
 
   const limitRaw = Number(req.query.limit || 20);
@@ -163,20 +167,59 @@ app.get('/context', requireSecret, async (req, res) => {
 
   const enabled = (await getSetting('learning_enabled', 'true')) === 'true';
 
-  let allMemories = enabled ? await getMemories(user_id) : [];
+  if (!enabled) {
+    return res.json({
+      ok: true,
+      learning_enabled: false,
+      user_id,
+      limit,
+      offset,
+      count: 0,
+      total: 0,
+      has_more: false,
+      next_offset: null,
+      gm_runtime_context: 'Öğrenme modu kapalı veya kayıtlı aktif kalibrasyon yok. Ana GM promptu aynen uygulanır.',
+      memories: []
+    });
+  }
+
+  const where = ['user_id = $1'];
+  const params = [user_id];
 
   if (enabledOnly) {
-    allMemories = allMemories.filter(m => m.enabled !== false);
+    params.push(true);
+    where.push(`enabled = $${params.length}`);
   }
 
   if (typeFilter) {
-    allMemories = allMemories.filter(m => String(m.type || '') === typeFilter);
+    params.push(typeFilter);
+    where.push(`type = $${params.length}`);
   }
 
-  const total = allMemories.length;
-  const page = allMemories.slice(offset, offset + limit);
+  const whereSql = where.join(' AND ');
 
-  const memories = page.map(m => {
+  const totalResult = await pool.query(
+    `SELECT COUNT(*)::int AS total FROM gm_memory WHERE ${whereSql}`,
+    params
+  );
+
+  const total = Number(totalResult.rows[0]?.total || 0);
+
+  const pageParams = [...params, limit, offset];
+
+  const pageResult = await pool.query(
+    `
+    SELECT id, user_id, type, content, enabled, created_at
+    FROM gm_memory
+    WHERE ${whereSql}
+    ORDER BY created_at DESC, id DESC
+    LIMIT $${params.length + 1}
+    OFFSET $${params.length + 2}
+    `,
+    pageParams
+  );
+
+  const memories = pageResult.rows.map(m => {
     const content = String(m.content || '');
 
     const base = {
@@ -184,8 +227,7 @@ app.get('/context', requireSecret, async (req, res) => {
       user_id: String(m.user_id || user_id),
       type: String(m.type || 'manual'),
       enabled: m.enabled !== false,
-      created_at: m.created_at || null,
-      updated_at: m.updated_at || null
+      created_at: m.created_at || null
     };
 
     if (summaryOnly) {
@@ -197,7 +239,7 @@ app.get('/context', requireSecret, async (req, res) => {
     return base;
   });
 
-  const instruction = enabled && memories.length
+  const instruction = memories.length
     ? memories
         .map(m => `- [${m.id}] ${m.type}: ${m.content_preview || m.content || ''}`)
         .join('\n')
