@@ -276,3 +276,38 @@ initDb()
     console.error('Failed to initialize database:', err);
     process.exit(1);
   });
+
+app.post('/memory/bulk-disable', requireSecret, async (req, res) => {
+  if (!pool) {
+    return res.status(500).json({ ok: false, error: 'DATABASE_URL is not configured.' });
+  }
+
+  const ids = Array.isArray(req.body?.ids)
+    ? req.body.ids.map(id => String(id).trim()).filter(Boolean)
+    : [];
+
+  const uniqueIds = [...new Set(ids)];
+
+  if (!uniqueIds.length) {
+    return res.status(400).json({
+      ok: false,
+      error: 'ids array is required.'
+    });
+  }
+
+  const result = await pool.query(
+    'UPDATE gm_memory SET enabled=false WHERE id = ANY($1::text[]) RETURNING id',
+    [uniqueIds]
+  );
+
+  const disabled_ids = result.rows.map(row => String(row.id));
+  const not_found_ids = uniqueIds.filter(id => !disabled_ids.includes(id));
+
+  res.json({
+    ok: true,
+    requested_count: uniqueIds.length,
+    disabled_count: disabled_ids.length,
+    disabled_ids,
+    not_found_ids
+  });
+});
