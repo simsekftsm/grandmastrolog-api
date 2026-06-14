@@ -376,23 +376,50 @@ function calculateAsteroidsGate({ birth }) {
   };
 }
 app.post('/advanced-gate', requireSecret, async (req, res) => {
-  const body = req.body || {};
+  try {
+    const body = req.body || {};
+    const requestedGates = Array.isArray(body.requested_gates)
+      ? body.requested_gates
+      : [];
 
-  return res.json({
-    ok: true,
-    engine: 'grandmastrolog_advanced_gate_stub_v1',
-    received: {
-      analysis_type: body.analysis_type || 'advanced_gate',
-      requested_gates: body.requested_gates || [],
-      period: body.period || null,
-      focus: body.focus || []
-    },
-    advanced_gate_packet: {
-      status: 'stub_ready',
-      message: 'Advanced Gate endpoint çalışıyor. Asteroid, Solar Arc, Primary Direction ve Electional hesap motorları sonraki adımda bağlanacak.',
-      gates: {}
+    const gates = {};
+
+    if (requestedGates.includes('asteroids')) {
+      gates.asteroids = calculateAsteroidsGate({
+        birth: body.birth
+      });
     }
-  });
+
+    return res.json({
+      ok: true,
+      engine: 'grandmastrolog_advanced_gate_v1',
+      received: {
+        analysis_type: body.analysis_type || 'advanced_gate',
+        requested_gates: requestedGates,
+        period: body.period || null,
+        focus: body.focus || []
+      },
+      advanced_gate_packet: {
+        status: 'calculated',
+        message: 'Advanced Gate endpoint çalışıyor. Asteroid Kapısı gerçek derece ve açı verisiyle döndü. Solar Arc, Primary Direction ve Electional sonraki adımlarda bağlanacak.',
+        gates,
+        integrity: {
+          asteroids_calculated: Boolean(gates.asteroids),
+          solar_arc_calculated: false,
+          primary_directions_calculated: false,
+          electional_calculated: false
+        }
+      }
+    });
+  } catch (err) {
+    console.error('advanced-gate error:', err);
+
+    return res.status(500).json({
+      ok: false,
+      error: 'Advanced Gate calculation failed.',
+      detail: err.message
+    });
+  }
 });
 app.get('/learning/status', requireSecret, async (_req, res) => {
   const enabled = (await getSetting('learning_enabled', 'true')) === 'true';
