@@ -546,7 +546,312 @@ function calculateSolarArcGate({ birth, period }) {
       }
     }
   }
+const PRIMARY_DIRECTION_POINTS = [
+  { name: 'Sun', id: swisseph.SE_SUN },
+  { name: 'Moon', id: swisseph.SE_MOON },
+  { name: 'Mercury', id: swisseph.SE_MERCURY },
+  { name: 'Venus', id: swisseph.SE_VENUS },
+  { name: 'Mars', id: swisseph.SE_MARS },
+  { name: 'Jupiter', id: swisseph.SE_JUPITER },
+  { name: 'Saturn', id: swisseph.SE_SATURN },
+  { name: 'Uranus', id: swisseph.SE_URANUS },
+  { name: 'Neptune', id: swisseph.SE_NEPTUNE },
+  { name: 'Pluto', id: swisseph.SE_PLUTO }
+];
 
+const PRIMARY_DIRECTION_ASPECT_OFFSETS = [
+  { name: 'Conjunction', offsets: [0] },
+  { name: 'Opposition', offsets: [180] },
+  { name: 'Square', offsets: [90, -90] },
+  { name: 'Trine', offsets: [120, -120] },
+  { name: 'Sextile', offsets: [60, -60] }
+];
+
+const NAIBOD_RATE = 0.98564736;
+
+function degToRad(deg) {
+  return deg * Math.PI / 180;
+}
+
+function radToDeg(rad) {
+  return rad * 180 / Math.PI;
+}
+
+function obliquityForJulianDay(jd) {
+  const t = (jd - 2451545.0) / 36525;
+  return 23.43929111 - (0.0130041667 * t);
+}
+
+function eclipticLongitudeToRightAscension(longitude, jd) {
+  const lambda = degToRad(normalizeDegree(longitude));
+  const epsilon = degToRad(obliquityForJulianDay(jd));
+
+  const y = Math.sin(lambda) * Math.cos(epsilon);
+  const x = Math.cos(lambda);
+
+  return normalizeDegree(radToDeg(Math.atan2(y, x)));
+}
+
+function calcEquatorialPoint(jd, pointId, flags) {
+  const result = swisseph.swe_calc_ut(
+    jd,
+    pointId,
+    flags | swisseph.SEFLG_EQUATORIAL
+  );
+
+  if (result?.error) {
+    throw new Error(result.error);
+  }
+
+  const rightAscension = Array.isArray(result)
+    ? result[0]
+    : (result.rightAscension ?? result.ra ?? result.longitude);
+
+  const declination = Array.isArray(result)
+    ? result[1]
+    : (result.declination ?? result.latitude);
+
+  if (typeof rightAscension !== 'number') {
+    throw new Error('Right Ascension could not be calculated.');
+  }
+
+  return {
+    ra: normalizeDegree(rightAscension),
+    declination: typeof declination === 'number' ? declination : null
+  };
+}
+
+function tryCalculatePrimaryAngles(jd, birth) {
+  const angles = [];
+
+  try {
+    if (
+      typeof birth?.latitude !== 'number' ||
+      typeof birth?.longitude !== 'number'
+    ) {
+      return angles;
+    }
+
+    const houses = swisseph.swe_houses(
+      jd,
+      Number(birth.latitude),
+      Number(birth.longitude),
+      'P'
+    );
+
+    const asc =
+      houses?.ascendant ??
+      houses?.asc ??
+      houses?.ascmc?.[0] ??
+      null;
+
+    const mc =
+      houses?.mc ??
+      houses?.midheaven ??
+      houses?.ascmc?.[1] ??
+      null;
+
+    if (typeof asc === 'number') {
+      angles.push({
+        name: 'Ascendant',
+        ra: eclipticLongitudeToRightAscension(asc, jd),
+        full_degree: normalizeDegree(asc),
+        type: 'angle'
+      });
+    }
+
+    if (typeof mc === 'number') {
+      angles.push({
+        name: 'MC',
+        ra: eclipticLongitudeToRightAscension(mc, jd),
+        full_degree: normalizeDegree(mc),
+        type: 'angle'
+      });
+    }
+  } catch (err) {
+    console.warn('Primary Direction angles skipped:', err.message);
+  }
+
+  return angles;
+}
+
+function getPrimaryDirectionPointTable(jd, flags, birth) {
+  const planetPoints = PRIMARY_DIRECTION_POINTS.map(pointDef => {
+    const ecliptic = calcPoint(jd, pointDef.id, flags);
+    const equatorial = calcEquatorialPoint(jd, pointDef.id, flags);
+
+    return {
+      name: pointDef.name,
+      full_degree: ecliptic.full_degree,
+      ra: equatorial.ra,
+      declination: equatorial.declination,
+      type: 'planet'
+    };
+  });
+
+  const anglePoints = tryCalculatePrimaryAngles(jd, birth);
+
+  return [...planetPoints, ...anglePoints];
+}
+
+function yearsBetweenDateTimes(fromDt, toDt) {
+  return toDt.diff(fromDt, 'days').days / 365.2425;
+}
+
+function dateFromAgeYears(birthDt, ageYears) {
+  return birthDt
+    .plus({ days: ageYears * 365.2425 })
+    .toISODate();
+}
+
+function primaryDirectionTopicsForHit(promissor, significator) {
+  const joined = `${promissor} ${significator}`;
+  const topics = new Set();
+
+  if (/MC|Sun|Saturn|Jupiter/i.test(joined)) topics.add('career');
+  if (/MC|Sun|Venus|Jupiter|Ascendant/i.test(joined)) topics.add('visibility');
+  if (/Moon|Venus|Mercury|Jupiter/i.test(joined)) topics.add('money');
+  if (/Venus|Mars|Moon|Ascendant/i.test(joined)) topics.add('relationship');
+  if (/Moon|Mars|Saturn|Ascendant/i.test(joined)) topics.add('body');
+  if (/Saturn|Pluto|Neptune/i.test(joined)) topics.add('hidden_patterns');
+
+  if (!topics.size) topics.add('general');
+
+  return [...topics];
+}
+
+function primaryDirectionStrength({ promissor, significator, aspect, age }) {
+  let score = 0;
+
+  if (/Ascendant|MC/i.test(significator)) score += 3;
+  if (/Sun|Moon/i.test(significator)) score += 2;
+  if (/Sun|Moon|Venus|Mars|Saturn|Jupiter/i.test(promissor)) score += 2;
+  if (/Conjunction|Opposition|Square/i.test(aspect)) score += 2;
+  if (age >= 0 && age <= 90) score += 1;
+
+  if (score >= 7) return 'very_high';
+  if (score >= 5) return 'high';
+  if (score >= 3) return 'medium';
+  return 'low';
+}
+
+function calculatePrimaryDirectionsGate({ birth, period }) {
+  const birthDt = parseBirthDateTime(birth);
+  const natalJd = parseBirthToJulianDay(birth);
+  const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH;
+
+  const periodStart = period?.start
+    ? DateTime.fromISO(period.start, { zone: birth.timezone })
+    : birthDt.plus({ years: 1 });
+
+  const periodEnd = period?.end
+    ? DateTime.fromISO(period.end, { zone: birth.timezone })
+    : periodStart.plus({ years: 1 });
+
+  if (!periodStart.isValid || !periodEnd.isValid) {
+    throw new Error('period.start and period.end must be valid ISO dates.');
+  }
+
+  if (periodEnd <= periodStart) {
+    throw new Error('period.end must be after period.start.');
+  }
+
+  const minAge = Math.max(0, yearsBetweenDateTimes(birthDt, periodStart));
+  const maxAge = Math.max(0, yearsBetweenDateTimes(birthDt, periodEnd));
+
+  const points = getPrimaryDirectionPointTable(natalJd, flags, birth);
+
+  const promissors = points.filter(p => p.type === 'planet');
+  const significators = points;
+
+  const hits = [];
+  const seen = new Set();
+
+  for (const promissor of promissors) {
+    for (const significator of significators) {
+      if (promissor.name === significator.name) continue;
+
+      for (const aspectDef of PRIMARY_DIRECTION_ASPECT_OFFSETS) {
+        for (const offset of aspectDef.offsets) {
+          const targetRa = normalizeDegree(significator.ra + offset);
+
+          const directArc = normalizeDegree(targetRa - promissor.ra);
+          const directAge = directArc / NAIBOD_RATE;
+
+          if (directAge >= minAge && directAge <= maxAge) {
+            const key = `${promissor.name}|${significator.name}|${aspectDef.name}|direct|${offset}`;
+
+            if (!seen.has(key)) {
+              seen.add(key);
+
+              hits.push({
+                promissor: promissor.name,
+                significator: significator.name,
+                aspect: aspectDef.name,
+                direction: 'direct',
+                arc: Number(directArc.toFixed(4)),
+                age: Number(directAge.toFixed(4)),
+                date_estimate: dateFromAgeYears(birthDt, directAge),
+                topics: primaryDirectionTopicsForHit(promissor.name, significator.name),
+                strength: primaryDirectionStrength({
+                  promissor: promissor.name,
+                  significator: significator.name,
+                  aspect: aspectDef.name,
+                  age: directAge
+                })
+              });
+            }
+          }
+
+          const converseArc = normalizeDegree(promissor.ra - targetRa);
+          const converseAge = converseArc / NAIBOD_RATE;
+
+          if (converseAge >= minAge && converseAge <= maxAge) {
+            const key = `${promissor.name}|${significator.name}|${aspectDef.name}|converse|${offset}`;
+
+            if (!seen.has(key)) {
+              seen.add(key);
+
+              hits.push({
+                promissor: promissor.name,
+                significator: significator.name,
+                aspect: aspectDef.name,
+                direction: 'converse',
+                arc: Number(converseArc.toFixed(4)),
+                age: Number(converseAge.toFixed(4)),
+                date_estimate: dateFromAgeYears(birthDt, converseAge),
+                topics: primaryDirectionTopicsForHit(promissor.name, significator.name),
+                strength: primaryDirectionStrength({
+                  promissor: promissor.name,
+                  significator: significator.name,
+                  aspect: aspectDef.name,
+                  age: converseAge
+                })
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  hits.sort((a, b) => {
+    const dateCompare = String(a.date_estimate).localeCompare(String(b.date_estimate));
+    if (dateCompare !== 0) return dateCompare;
+
+    const strengthRank = { very_high: 4, high: 3, medium: 2, low: 1 };
+    return (strengthRank[b.strength] || 0) - (strengthRank[a.strength] || 0);
+  });
+
+  return {
+    gate: 'primary_directions',
+    method: 'equatorial_ra_naibod_direct_converse_v1',
+    period: period?.start && period?.end
+      ? `${period.start}/${period.end}`
+      : 'default_1_year',
+    hits: hits.slice(0, 40)
+  };
+}
   const hits = [...candidates.values()]
     .sort((a, b) => a.orb - b.orb)
     .slice(0, 30);
@@ -560,6 +865,8 @@ function calculateSolarArcGate({ birth, period }) {
     hits
   };
 }
+
+
 app.post('/advanced-gate', requireSecret, async (req, res) => {
   try {
     const body = req.body || {};
