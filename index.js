@@ -574,7 +574,12 @@ app.post('/advanced-gate', requireSecret, async (req, res) => {
         birth: body.birth
       });
     }
-
+if (requestedGates.includes('solar_arc')) {
+  gates.solar_arc = calculateSolarArcGate({
+    birth: body.birth,
+    period: body.period
+  });
+}
     return res.json({
       ok: true,
       engine: 'grandmastrolog_advanced_gate_v1',
@@ -589,10 +594,10 @@ app.post('/advanced-gate', requireSecret, async (req, res) => {
         message: 'Advanced Gate endpoint çalışıyor. Asteroid Kapısı gerçek derece ve açı verisiyle döndü. Solar Arc, Primary Direction ve Electional sonraki adımlarda bağlanacak.',
         gates,
         integrity: {
-          asteroids_calculated: Boolean(gates.asteroids),
-          solar_arc_calculated: false,
-          primary_directions_calculated: false,
-          electional_calculated: false
+        asteroids_calculated: Boolean(gates.asteroids),
+        solar_arc_calculated: Boolean(gates.solar_arc),
+        primary_directions_calculated: false,
+        electional_calculated: false
         }
       }
     });
