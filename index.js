@@ -176,7 +176,25 @@ app.get('/health', async (_req, res) => {
     groq: Boolean(groq)
   });
 });
+app.post('/advanced-gate', requireSecret, async (req, res) => {
+  const body = req.body || {};
 
+  return res.json({
+    ok: true,
+    engine: 'grandmastrolog_advanced_gate_stub_v1',
+    received: {
+      analysis_type: body.analysis_type || 'advanced_gate',
+      requested_gates: body.requested_gates || [],
+      period: body.period || null,
+      focus: body.focus || []
+    },
+    advanced_gate_packet: {
+      status: 'stub_ready',
+      message: 'Advanced Gate endpoint çalışıyor. Asteroid, Solar Arc, Primary Direction ve Electional hesap motorları sonraki adımda bağlanacak.',
+      gates: {}
+    }
+  });
+});
 app.get('/learning/status', requireSecret, async (_req, res) => {
   const enabled = (await getSetting('learning_enabled', 'true')) === 'true';
 
