@@ -1015,37 +1015,61 @@ function scoreElectionalCandidate({ dt, planets, angles, eventType, focus, birth
     }
   }
 
-  try {
-    const natalJd = parseBirthToJulianDay(birth);
-    const natalPoints = getNatalPointTable(natalJd, flags, SOLAR_ARC_POINTS);
+  const natalPoints = [];
 
-    const personalElectionalPoints = [
-      planets.Moon,
-      planets.Venus,
-      planets.Jupiter,
-      planets.Mercury
-    ];
+try {
+  const natalJd = parseBirthToJulianDay(birth);
 
-    for (const electionalPoint of personalElectionalPoints) {
-      for (const natalPoint of natalPoints) {
-        const aspect = electionalAspectBetween(electionalPoint, natalPoint, 2);
+  for (const pointDef of ELECTIONAL_POINTS) {
+    try {
+      const point = calcPoint(natalJd, pointDef.id, flags);
 
-        if (!aspect) continue;
+      if (typeof point?.full_degree === 'number') {
+        natalPoints.push({
+          name: pointDef.name,
+          full_degree: point.full_degree
+        });
+      }
+    } catch (err) {
+      console.warn(`Natal fit point skipped: ${pointDef.name}`, err.message);
+    }
+  }
+} catch (err) {
+  console.warn('Electional natal fit base skipped:', err.message);
+}
 
-        if (aspect.type === 'supportive' || aspect.name === 'conjunction') {
-          score += 3;
-          reasons.push(`${electionalPoint.sign} ${electionalPoint.degree?.toFixed?.(2) || ''} supports natal ${natalPoint.name}.`);
-        }
+if (natalPoints.length) {
+  const personalElectionalPoints = [
+    { name: 'Moon', ...planets.Moon },
+    { name: 'Venus', ...planets.Venus },
+    { name: 'Jupiter', ...planets.Jupiter },
+    { name: 'Mercury', ...planets.Mercury }
+  ];
 
-        if (aspect.type === 'hard' && ['Moon', 'Sun', 'Venus'].includes(natalPoint.name)) {
-          score -= 3;
-          cautions.push(`Electional ${electionalPoint.sign} has hard contact with natal ${natalPoint.name}.`);
-        }
+  for (const electionalPoint of personalElectionalPoints) {
+    if (typeof electionalPoint?.full_degree !== 'number') continue;
+
+    for (const natalPoint of natalPoints) {
+      const aspect = electionalAspectBetween(electionalPoint, natalPoint, 2);
+
+      if (!aspect) continue;
+
+      const pointLabel = electionalPoint.sign
+        ? `${electionalPoint.name} in ${electionalPoint.sign}`
+        : electionalPoint.name;
+
+      if (aspect.type === 'supportive' || aspect.name === 'conjunction') {
+        score += 3;
+        reasons.push(`${pointLabel} supports natal ${natalPoint.name}.`);
+      }
+
+      if (aspect.type === 'hard' && ['Moon', 'Sun', 'Venus'].includes(natalPoint.name)) {
+        score -= 3;
+        cautions.push(`${pointLabel} has hard contact with natal ${natalPoint.name}.`);
       }
     }
-  } catch (err) {
-    cautions.push('Personal natal fit could not be fully scored.');
   }
+}
 
   if (typeof angles.asc_degree === 'number') {
     score += 2;
