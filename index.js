@@ -377,6 +377,189 @@ function calculateAsteroidsGate({ birth }) {
     points
   };
 }
+const SOLAR_ARC_POINTS = [
+  { name: 'Sun', id: swisseph.SE_SUN },
+  { name: 'Moon', id: swisseph.SE_MOON },
+  { name: 'Mercury', id: swisseph.SE_MERCURY },
+  { name: 'Venus', id: swisseph.SE_VENUS },
+  { name: 'Mars', id: swisseph.SE_MARS },
+  { name: 'Jupiter', id: swisseph.SE_JUPITER },
+  { name: 'Saturn', id: swisseph.SE_SATURN },
+  { name: 'Uranus', id: swisseph.SE_URANUS },
+  { name: 'Neptune', id: swisseph.SE_NEPTUNE },
+  { name: 'Pluto', id: swisseph.SE_PLUTO }
+];
+
+function parseBirthDateTime(birth) {
+  if (!birth?.date || !birth?.time || !birth?.timezone) {
+    throw new Error('birth.date, birth.time and birth.timezone are required.');
+  }
+
+  const dt = DateTime.fromISO(`${birth.date}T${birth.time}`, {
+    zone: birth.timezone
+  });
+
+  if (!dt.isValid) {
+    throw new Error(`Invalid birth date/time/timezone: ${dt.invalidReason}`);
+  }
+
+  return dt;
+}
+
+function dateTimeToJulianDay(dt) {
+  const utc = dt.toUTC();
+  const decimalHour = utc.hour + utc.minute / 60 + utc.second / 3600;
+
+  return swisseph.swe_julday(
+    utc.year,
+    utc.month,
+    utc.day,
+    decimalHour,
+    swisseph.SE_GREG_CAL
+  );
+}
+
+function buildScanDates(period, fallbackStartDate) {
+  const start = period?.start
+    ? DateTime.fromISO(period.start, { zone: 'utc' })
+    : fallbackStartDate.setZone('utc');
+
+  const end = period?.end
+    ? DateTime.fromISO(period.end, { zone: 'utc' })
+    : start.plus({ years: 1 });
+
+  if (!start.isValid || !end.isValid) {
+    throw new Error('period.start and period.end must be valid ISO dates.');
+  }
+
+  if (end <= start) {
+    throw new Error('period.end must be after period.start.');
+  }
+
+  const totalDays = Math.ceil(end.diff(start, 'days').days);
+  const stepDays = totalDays > 1500 ? 3 : 1;
+  const dates = [];
+
+  for (let i = 0; i <= totalDays; i += stepDays) {
+    dates.push(start.plus({ days: i }));
+  }
+
+  return dates;
+}
+
+function getNatalPointTable(jd, flags, pointList) {
+  return pointList.map(pointDef => {
+    const point = calcPoint(jd, pointDef.id, flags);
+
+    return {
+      name: pointDef.name,
+      full_degree: point.full_degree
+    };
+  });
+}
+
+function solarArcForDate({ natalJd, natalSunDegree, birthDt, targetDt, flags }) {
+  const ageDays = targetDt.diff(birthDt, 'days').days;
+  const ageYears = ageDays / 365.2425;
+
+  const progressedJd = natalJd + ageYears;
+  const progressedSun = calcPoint(progressedJd, swisseph.SE_SUN, flags);
+
+  return normalizeDegree(progressedSun.full_degree - natalSunDegree);
+}
+
+function solarArcTopicsForHit(directedPoint, natalPoint) {
+  const joined = `${directedPoint} ${natalPoint}`;
+
+  const topics = new Set();
+
+  if (/Sun|MC|Saturn/i.test(joined)) topics.add('career');
+  if (/Sun|Venus|Jupiter|MC/i.test(joined)) topics.add('visibility');
+  if (/Moon|Venus|Jupiter|Mercury/i.test(joined)) topics.add('money');
+  if (/Venus|Mars|Moon/i.test(joined)) topics.add('relationship');
+  if (/Moon|Mars|Saturn/i.test(joined)) topics.add('body');
+  if (/Saturn|Pluto|Neptune/i.test(joined)) topics.add('hidden_patterns');
+
+  if (!topics.size) topics.add('general');
+
+  return [...topics];
+}
+
+function calculateSolarArcGate({ birth, period }) {
+  const birthDt = parseBirthDateTime(birth);
+  const natalJd = parseBirthToJulianDay(birth);
+  const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH;
+
+  const natalPoints = getNatalPointTable(natalJd, flags, SOLAR_ARC_POINTS);
+  const natalSun = natalPoints.find(p => p.name === 'Sun');
+
+  if (!natalSun) {
+    throw new Error('Natal Sun could not be calculated for Solar Arc.');
+  }
+
+  const scanDates = buildScanDates(period, birthDt);
+  const candidates = new Map();
+
+  for (const targetDt of scanDates) {
+    const arc = solarArcForDate({
+      natalJd,
+      natalSunDegree: natalSun.full_degree,
+      birthDt,
+      targetDt,
+      flags
+    });
+
+    const directedPoints = natalPoints.map(point => ({
+      name: `SA ${point.name}`,
+      natal_name: point.name,
+      full_degree: normalizeDegree(point.full_degree + arc)
+    }));
+
+    for (const directed of directedPoints) {
+      for (const natal of natalPoints) {
+        const distance = angularDistance(directed.full_degree, natal.full_degree);
+
+        for (const aspect of ASPECTS) {
+          const orb = Math.abs(distance - aspect.angle);
+
+          if (orb <= 0.8) {
+            const key = `${directed.name}|${natal.name}|${aspect.name}`;
+            const existing = candidates.get(key);
+
+            if (!existing || orb < existing.orb) {
+              candidates.set(key, {
+                directed_point: directed.name,
+                natal_point: natal.name,
+                aspect: aspect.name,
+                exact_date: targetDt.toISODate(),
+                orb: Number(orb.toFixed(4)),
+                topics: solarArcTopicsForHit(directed.name, natal.name),
+                strength:
+                  orb <= 0.1 ? 'very_high' :
+                  orb <= 0.25 ? 'high' :
+                  orb <= 0.5 ? 'medium' :
+                  'low'
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const hits = [...candidates.values()]
+    .sort((a, b) => a.orb - b.orb)
+    .slice(0, 30);
+
+  return {
+    gate: 'solar_arc',
+    period: period?.start && period?.end
+      ? `${period.start}/${period.end}`
+      : 'default_1_year',
+    arc_method: 'progressed_sun_arc',
+    hits
+  };
+}
 app.post('/advanced-gate', requireSecret, async (req, res) => {
   try {
     const body = req.body || {};
