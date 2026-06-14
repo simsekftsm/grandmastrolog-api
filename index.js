@@ -4,7 +4,10 @@ import cors from 'cors';
 import helmet from 'helmet';
 import pg from 'pg';
 import Groq from 'groq-sdk';
+import { createRequire } from 'module';
 
+const require = createRequire(import.meta.url);
+const swisseph = require('swisseph');
 const { Pool } = pg;
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -169,11 +172,36 @@ Bunu tek kısa aktif kalibrasyon notuna dönüştür.`
 }
 
 app.get('/health', async (_req, res) => {
+  let swissephOk = false;
+  let swissephSunDegree = null;
+  let swissephError = null;
+
+  try {
+    const jd = swisseph.swe_julday(1990, 3, 10, 13.5, swisseph.SE_GREG_CAL);
+    const flag = swisseph.SEFLG_SPEED | swisseph.SEFLG_MOSEPH;
+
+    const sun = swisseph.swe_calc_ut(jd, swisseph.SE_SUN, flag);
+
+    if (!sun?.error) {
+      swissephOk = true;
+      swissephSunDegree = Array.isArray(sun) ? sun[0] : (sun.longitude ?? sun[0] ?? null);
+    } else {
+      swissephError = sun.error;
+    }
+  } catch (err) {
+    swissephError = err.message;
+  }
+
   res.json({
     ok: true,
     service: 'grandmastrolog-api',
     db: Boolean(pool),
-    groq: Boolean(groq)
+    groq: Boolean(groq),
+    swisseph: {
+      ok: swissephOk,
+      sun_degree_test: swissephSunDegree,
+      error: swissephError
+    }
   });
 });
 app.post('/advanced-gate', requireSecret, async (req, res) => {
