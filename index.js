@@ -676,7 +676,463 @@ function normalizeRequestedGates(value) {
     .map(item => String(item || '').trim().toLowerCase().replace(/\s+/g, '_'))
     .filter(Boolean);
 }
+const ELECTIONAL_POINTS = [
+  { name: 'Sun', id: swisseph.SE_SUN },
+  { name: 'Moon', id: swisseph.SE_MOON },
+  { name: 'Mercury', id: swisseph.SE_MERCURY },
+  { name: 'Venus', id: swisseph.SE_VENUS },
+  { name: 'Mars', id: swisseph.SE_MARS },
+  { name: 'Jupiter', id: swisseph.SE_JUPITER },
+  { name: 'Saturn', id: swisseph.SE_SATURN },
+  { name: 'Uranus', id: swisseph.SE_URANUS },
+  { name: 'Neptune', id: swisseph.SE_NEPTUNE },
+  { name: 'Pluto', id: swisseph.SE_PLUTO }
+];
 
+const ELECTIONAL_EVENT_CONFIG = {
+  launch: {
+    hours: [9, 10, 11, 12, 13, 14, 15, 16],
+    prefer: ['Sun', 'Mercury', 'Jupiter', 'Venus'],
+    avoid_retro: ['Mercury'],
+    topics: ['career', 'visibility', 'money']
+  },
+  contract: {
+    hours: [9, 10, 11, 12, 13, 14, 15, 16],
+    prefer: ['Mercury', 'Venus', 'Jupiter'],
+    avoid_retro: ['Mercury'],
+    topics: ['money', 'career']
+  },
+  application: {
+    hours: [9, 10, 11, 12, 13, 14, 15, 16],
+    prefer: ['Mercury', 'Jupiter', 'Sun'],
+    avoid_retro: ['Mercury'],
+    topics: ['career', 'visibility']
+  },
+  meeting: {
+    hours: [9, 10, 11, 12, 13, 14, 15, 16, 17],
+    prefer: ['Mercury', 'Venus', 'Jupiter'],
+    avoid_retro: ['Mercury'],
+    topics: ['career', 'relationship']
+  },
+  payment_request: {
+    hours: [9, 10, 11, 12, 13, 14, 15, 16],
+    prefer: ['Mercury', 'Venus', 'Jupiter', 'Moon'],
+    avoid_retro: ['Mercury'],
+    topics: ['money']
+  },
+  relationship_message: {
+    hours: [17, 18, 19, 20, 21],
+    prefer: ['Venus', 'Moon', 'Mercury'],
+    avoid_retro: ['Mercury', 'Venus'],
+    topics: ['relationship']
+  },
+  relocation: {
+    hours: [9, 10, 11, 12, 13, 14, 15],
+    prefer: ['Moon', 'Mercury', 'Jupiter'],
+    avoid_retro: ['Mercury'],
+    topics: ['home_family']
+  },
+  business_start: {
+    hours: [9, 10, 11, 12, 13, 14, 15],
+    prefer: ['Sun', 'Mercury', 'Jupiter', 'Saturn'],
+    avoid_retro: ['Mercury'],
+    topics: ['career', 'money', 'visibility']
+  },
+  content_publish: {
+    hours: [8, 10, 12, 14, 16, 18, 20],
+    prefer: ['Sun', 'Mercury', 'Jupiter', 'Venus'],
+    avoid_retro: ['Mercury'],
+    topics: ['visibility', 'career']
+  },
+  other: {
+    hours: [9, 11, 13, 15, 17, 19],
+    prefer: ['Moon', 'Mercury', 'Venus', 'Jupiter'],
+    avoid_retro: ['Mercury'],
+    topics: ['general']
+  }
+};
+
+function getElectionalConfig(eventType) {
+  return ELECTIONAL_EVENT_CONFIG[eventType] || ELECTIONAL_EVENT_CONFIG.other;
+}
+
+function getElectionalLocation({ birth, electional_request }) {
+  const location = electional_request?.location || {};
+
+  return {
+    city: location.city || 'birth_location',
+    latitude: typeof location.latitude === 'number'
+      ? location.latitude
+      : birth.latitude,
+    longitude: typeof location.longitude === 'number'
+      ? location.longitude
+      : birth.longitude,
+    timezone: location.timezone || birth.timezone
+  };
+}
+
+function buildElectionalDateTimes({ birth, period, electional_request }) {
+  const eventType = electional_request?.event_type || 'other';
+  const config = getElectionalConfig(eventType);
+  const location = getElectionalLocation({ birth, electional_request });
+
+  const startRaw =
+    electional_request?.date_range?.start ||
+    period?.start;
+
+  const endRaw =
+    electional_request?.date_range?.end ||
+    period?.end;
+
+  const start = startRaw
+    ? DateTime.fromISO(startRaw, { zone: location.timezone }).startOf('day')
+    : DateTime.now().setZone(location.timezone).startOf('day');
+
+  const end = endRaw
+    ? DateTime.fromISO(endRaw, { zone: location.timezone }).endOf('day')
+    : start.plus({ days: 30 }).endOf('day');
+
+  if (!start.isValid || !end.isValid) {
+    throw new Error('Electional date range is invalid.');
+  }
+
+  if (end <= start) {
+    throw new Error('Electional end date must be after start date.');
+  }
+
+  const totalDays = Math.ceil(end.diff(start, 'days').days);
+  const dayStep = totalDays > 240 ? 2 : 1;
+
+  const candidates = [];
+
+  for (let d = 0; d <= totalDays; d += dayStep) {
+    const day = start.plus({ days: d });
+
+    for (const hour of config.hours) {
+      candidates.push(day.set({ hour, minute: 0, second: 0, millisecond: 0 }));
+    }
+  }
+
+  return candidates;
+}
+
+function calcElectionalAngles(jd, location) {
+  try {
+    const houses = swisseph.swe_houses(
+      jd,
+      Number(location.latitude),
+      Number(location.longitude),
+      'P'
+    );
+
+    const asc =
+      houses?.ascendant ??
+      houses?.asc ??
+      houses?.ascmc?.[0] ??
+      null;
+
+    const mc =
+      houses?.mc ??
+      houses?.midheaven ??
+      houses?.ascmc?.[1] ??
+      null;
+
+    return {
+      ascendant: typeof asc === 'number'
+        ? degreeToSign(normalizeDegree(asc))
+        : null,
+      mc: typeof mc === 'number'
+        ? degreeToSign(normalizeDegree(mc))
+        : null,
+      asc_degree: typeof asc === 'number'
+        ? normalizeDegree(asc)
+        : null,
+      mc_degree: typeof mc === 'number'
+        ? normalizeDegree(mc)
+        : null
+    };
+  } catch (err) {
+    return {
+      ascendant: null,
+      mc: null,
+      asc_degree: null,
+      mc_degree: null
+    };
+  }
+}
+
+function getElectionalPlanetTable(jd, flags) {
+  const table = {};
+
+  for (const pointDef of ELECTIONAL_POINTS) {
+    table[pointDef.name] = calcPoint(jd, pointDef.id, flags);
+  }
+
+  return table;
+}
+
+function electionalAspectBetween(pointA, pointB, maxOrb = 6) {
+  const distance = angularDistance(pointA.full_degree, pointB.full_degree);
+
+  const aspects = [
+    { name: 'conjunction', angle: 0, type: 'strong' },
+    { name: 'sextile', angle: 60, type: 'supportive' },
+    { name: 'square', angle: 90, type: 'hard' },
+    { name: 'trine', angle: 120, type: 'supportive' },
+    { name: 'opposition', angle: 180, type: 'hard' }
+  ];
+
+  let best = null;
+
+  for (const aspect of aspects) {
+    const orb = Math.abs(distance - aspect.angle);
+
+    if (orb <= maxOrb && (!best || orb < best.orb)) {
+      best = {
+        name: aspect.name,
+        type: aspect.type,
+        orb: Number(orb.toFixed(4))
+      };
+    }
+  }
+
+  return best;
+}
+
+function electionalMoonPhase(moon, sun) {
+  const phase = normalizeDegree(moon.full_degree - sun.full_degree);
+
+  if (phase < 45) return 'new_to_crescent';
+  if (phase < 90) return 'crescent_to_first_quarter';
+  if (phase < 135) return 'waxing_gibbous';
+  if (phase < 180) return 'approaching_full';
+  if (phase < 225) return 'full_to_disseminating';
+  if (phase < 270) return 'waning_gibbous';
+  if (phase < 315) return 'last_quarter';
+  return 'balsamic';
+}
+
+function scoreElectionalCandidate({ dt, planets, angles, eventType, focus, birth, flags }) {
+  const config = getElectionalConfig(eventType);
+
+  let score = 50;
+  const reasons = [];
+  const cautions = [];
+
+  const moon = planets.Moon;
+  const sun = planets.Sun;
+
+  const moonPhase = electionalMoonPhase(moon, sun);
+
+  if (
+    ['crescent_to_first_quarter', 'waxing_gibbous', 'approaching_full'].includes(moonPhase)
+  ) {
+    score += 8;
+    reasons.push('Moon is in a growth phase.');
+  }
+
+  if (['balsamic', 'last_quarter'].includes(moonPhase)) {
+    score -= 8;
+    cautions.push('Moon is in a closing phase.');
+  }
+
+  const moonSign = moon.sign;
+
+  if (['Taurus', 'Cancer', 'Libra', 'Sagittarius', 'Pisces'].includes(moonSign)) {
+    score += 6;
+    reasons.push(`Moon is in a supportive sign: ${moonSign}.`);
+  }
+
+  if (['Scorpio', 'Capricorn'].includes(moonSign)) {
+    score -= 5;
+    cautions.push(`Moon is in a heavier sign: ${moonSign}.`);
+  }
+
+  const moonDegreeInSign = moon.degree;
+
+  if (moonDegreeInSign <= 2 || moonDegreeInSign >= 28) {
+    score -= 7;
+    cautions.push('Moon is at an unstable sign boundary.');
+  }
+
+  for (const planetName of config.avoid_retro) {
+    if (planets[planetName]?.retrograde) {
+      score -= 12;
+      cautions.push(`${planetName} is retrograde for this event type.`);
+    }
+  }
+
+  for (const planetName of config.prefer) {
+    const planet = planets[planetName];
+    if (!planet) continue;
+
+    if (!planet.retrograde) {
+      score += 3;
+      reasons.push(`${planetName} is direct and usable.`);
+    }
+
+    const moonAspect = electionalAspectBetween(moon, planet, 5);
+
+    if (moonAspect?.type === 'supportive') {
+      score += 8;
+      reasons.push(`Moon ${moonAspect.name} ${planetName}.`);
+    }
+
+    if (moonAspect?.name === 'conjunction' && ['Venus', 'Jupiter', 'Sun'].includes(planetName)) {
+      score += 10;
+      reasons.push(`Moon conjunct ${planetName}.`);
+    }
+  }
+
+  for (const hardPlanet of ['Mars', 'Saturn', 'Neptune', 'Pluto']) {
+    const aspect = electionalAspectBetween(moon, planets[hardPlanet], 5);
+
+    if (aspect?.type === 'hard' || aspect?.name === 'conjunction') {
+      score -= 10;
+      cautions.push(`Moon has a hard contact with ${hardPlanet}.`);
+    }
+  }
+
+  if (Array.isArray(focus)) {
+    for (const topic of focus) {
+      if (config.topics.includes(topic)) {
+        score += 3;
+      }
+    }
+  }
+
+  try {
+    const natalJd = parseBirthToJulianDay(birth);
+    const natalPoints = getNatalPointTable(natalJd, flags, SOLAR_ARC_POINTS);
+
+    const personalElectionalPoints = [
+      planets.Moon,
+      planets.Venus,
+      planets.Jupiter,
+      planets.Mercury
+    ];
+
+    for (const electionalPoint of personalElectionalPoints) {
+      for (const natalPoint of natalPoints) {
+        const aspect = electionalAspectBetween(electionalPoint, natalPoint, 2);
+
+        if (!aspect) continue;
+
+        if (aspect.type === 'supportive' || aspect.name === 'conjunction') {
+          score += 3;
+          reasons.push(`${electionalPoint.sign} ${electionalPoint.degree?.toFixed?.(2) || ''} supports natal ${natalPoint.name}.`);
+        }
+
+        if (aspect.type === 'hard' && ['Moon', 'Sun', 'Venus'].includes(natalPoint.name)) {
+          score -= 3;
+          cautions.push(`Electional ${electionalPoint.sign} has hard contact with natal ${natalPoint.name}.`);
+        }
+      }
+    }
+  } catch (err) {
+    cautions.push('Personal natal fit could not be fully scored.');
+  }
+
+  if (typeof angles.asc_degree === 'number') {
+    score += 2;
+    reasons.push(`Ascendant calculated: ${angles.ascendant?.sign || angles.ascendant}.`);
+  }
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  return {
+    score,
+    grade:
+      score >= 82 ? 'excellent' :
+      score >= 70 ? 'good' :
+      score >= 58 ? 'usable' :
+      'weak',
+    reasons: [...new Set(reasons)].slice(0, 8),
+    cautions: [...new Set(cautions)].slice(0, 6)
+  };
+}
+
+function calculateElectionalGate({ birth, period, focus = [], electional_request = {} }) {
+  const eventType = electional_request?.event_type || 'other';
+  const location = getElectionalLocation({ birth, electional_request });
+  const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH;
+
+  if (
+    typeof location.latitude !== 'number' ||
+    typeof location.longitude !== 'number' ||
+    !location.timezone
+  ) {
+    throw new Error('Electional location requires latitude, longitude and timezone.');
+  }
+
+  const candidateDateTimes = buildElectionalDateTimes({
+    birth,
+    period,
+    electional_request
+  });
+
+  const windows = [];
+
+  for (const dt of candidateDateTimes) {
+    const jd = dateTimeToJulianDay(dt);
+    const planets = getElectionalPlanetTable(jd, flags);
+    const angles = calcElectionalAngles(jd, location);
+
+    const scored = scoreElectionalCandidate({
+      dt,
+      planets,
+      angles,
+      eventType,
+      focus,
+      birth,
+      flags
+    });
+
+    windows.push({
+      start: dt.toISO({ suppressSeconds: true }),
+      end: dt.plus({ minutes: 90 }).toISO({ suppressSeconds: true }),
+      local_time: dt.toFormat('yyyy-MM-dd HH:mm ZZZZ'),
+      event_type: eventType,
+      location: {
+        city: location.city,
+        timezone: location.timezone
+      },
+      score: scored.score,
+      grade: scored.grade,
+      moon: {
+        sign: planets.Moon.sign,
+        degree: Number(planets.Moon.degree.toFixed(4)),
+        full_degree: Number(planets.Moon.full_degree.toFixed(4)),
+        phase: electionalMoonPhase(planets.Moon, planets.Sun)
+      },
+      mercury_retrograde: Boolean(planets.Mercury.retrograde),
+      venus_retrograde: Boolean(planets.Venus.retrograde),
+      ascendant: angles.ascendant,
+      mc: angles.mc,
+      reasons: scored.reasons,
+      cautions: scored.cautions
+    });
+  }
+
+  const bestWindows = windows
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 12);
+
+  return {
+    gate: 'electional',
+    event_type: eventType,
+    method: 'moon_benefic_malefic_retrograde_personal_fit_v1',
+    date_range: {
+      start: electional_request?.date_range?.start || period?.start || null,
+      end: electional_request?.date_range?.end || period?.end || null
+    },
+    location: {
+      city: location.city,
+      timezone: location.timezone
+    },
+    best_windows: bestWindows
+  };
+}
 app.post('/advanced-gate', requireSecret, async (req, res) => {
   try {
     const body = req.body || {};
