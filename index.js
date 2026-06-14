@@ -887,6 +887,12 @@ if (requestedGates.includes('solar_arc')) {
     period: body.period
   });
 }
+    if (requestedGates.includes('primary_directions')) {
+  gates.primary_directions = calculatePrimaryDirectionsGate({
+    birth: body.birth,
+    period: body.period
+  });
+}
     return res.json({
       ok: true,
       engine: 'grandmastrolog_advanced_gate_v1',
@@ -898,12 +904,12 @@ if (requestedGates.includes('solar_arc')) {
       },
       advanced_gate_packet: {
         status: 'calculated',
-        message: 'Advanced Gate endpoint çalışıyor. Asteroid Kapısı ve Solar Arc gerçek hesap verisiyle döndü. Primary Direction ve Electional sonraki adımlarda bağlanacak.',
+        message: 'Advanced Gate endpoint çalışıyor. Asteroid Kapısı, Solar Arc ve Primary Direction gerçek hesap verisiyle döndü. Electional sonraki adımda bağlanacak.',
         gates,
         integrity: {
         asteroids_calculated: Boolean(gates.asteroids),
         solar_arc_calculated: Boolean(gates.solar_arc),
-        primary_directions_calculated: false,
+        primary_directions_calculated: Boolean(gates.primary_directions),
         electional_calculated: false
         }
       }
