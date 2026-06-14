@@ -591,7 +591,7 @@ if (requestedGates.includes('solar_arc')) {
       },
       advanced_gate_packet: {
         status: 'calculated',
-        message: 'Advanced Gate endpoint çalışıyor. Asteroid Kapısı gerçek derece ve açı verisiyle döndü. Solar Arc, Primary Direction ve Electional sonraki adımlarda bağlanacak.',
+        message: 'Advanced Gate endpoint çalışıyor. Asteroid Kapısı ve Solar Arc gerçek hesap verisiyle döndü. Primary Direction ve Electional sonraki adımlarda bağlanacak.',
         gates,
         integrity: {
         asteroids_calculated: Boolean(gates.asteroids),
