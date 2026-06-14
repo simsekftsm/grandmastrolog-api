@@ -11,11 +11,12 @@
     "node": ">=20"
   },
   "dependencies": {
-    "groq-sdk": "latest",
     "cors": "latest",
     "dotenv": "latest",
     "express": "latest",
+    "groq-sdk": "latest",
     "helmet": "latest",
-    "pg": "latest"
+    "pg": "latest",
+    "swisseph": "^0.5.17"
   }
 }
