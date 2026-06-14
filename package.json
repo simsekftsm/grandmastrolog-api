@@ -17,7 +17,7 @@
     "groq-sdk": "latest",
     "helmet": "latest",
     "pg": "latest",
-    "swisseph": "^0.5.17"
+    "swisseph": "^0.5.17",
     "luxon": "^3.5.0"
   }
 }
