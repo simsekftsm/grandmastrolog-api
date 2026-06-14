@@ -1188,14 +1188,14 @@ if (requestedGates.includes('electional')) {
       },
       advanced_gate_packet: {
         status: 'calculated',
-        message: 'Advanced Gate endpoint çalışıyor. Asteroid Kapısı, Solar Arc ve Primary Direction güvenli hesap verisiyle döndü. Electional sonraki adımda bağlanacak.',
+        message: 'Advanced Gate endpoint çalışıyor. Asteroid Kapısı, Solar Arc, Primary Direction ve Electional gerçek hesap verisiyle döndü.',
         gates,
         gate_errors,
         integrity: {
           asteroids_calculated: Boolean(gates.asteroids),
           solar_arc_calculated: Boolean(gates.solar_arc),
           primary_directions_calculated: Boolean(gates.primary_directions),
-          electional_calculated: false
+          electional_calculated: Boolean(gates.electional)
         }
       }
     });
