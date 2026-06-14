@@ -242,6 +242,42 @@ const NATAL_ASPECT_TARGETS = [
   { name: 'Pluto', id: swisseph.SE_PLUTO }
 ];
 
+const SOLAR_ARC_POINTS = [
+  { name: 'Sun', id: swisseph.SE_SUN },
+  { name: 'Moon', id: swisseph.SE_MOON },
+  { name: 'Mercury', id: swisseph.SE_MERCURY },
+  { name: 'Venus', id: swisseph.SE_VENUS },
+  { name: 'Mars', id: swisseph.SE_MARS },
+  { name: 'Jupiter', id: swisseph.SE_JUPITER },
+  { name: 'Saturn', id: swisseph.SE_SATURN },
+  { name: 'Uranus', id: swisseph.SE_URANUS },
+  { name: 'Neptune', id: swisseph.SE_NEPTUNE },
+  { name: 'Pluto', id: swisseph.SE_PLUTO }
+];
+
+const PRIMARY_DIRECTION_POINTS = [
+  { name: 'Sun', id: swisseph.SE_SUN },
+  { name: 'Moon', id: swisseph.SE_MOON },
+  { name: 'Mercury', id: swisseph.SE_MERCURY },
+  { name: 'Venus', id: swisseph.SE_VENUS },
+  { name: 'Mars', id: swisseph.SE_MARS },
+  { name: 'Jupiter', id: swisseph.SE_JUPITER },
+  { name: 'Saturn', id: swisseph.SE_SATURN },
+  { name: 'Uranus', id: swisseph.SE_URANUS },
+  { name: 'Neptune', id: swisseph.SE_NEPTUNE },
+  { name: 'Pluto', id: swisseph.SE_PLUTO }
+];
+
+const PRIMARY_DIRECTION_ASPECT_OFFSETS = [
+  { name: 'Conjunction', offsets: [0] },
+  { name: 'Opposition', offsets: [180] },
+  { name: 'Square', offsets: [90, -90] },
+  { name: 'Trine', offsets: [120, -120] },
+  { name: 'Sextile', offsets: [60, -60] }
+];
+
+const NAIBOD_RATE = 0.98564736;
+
 function normalizeDegree(value) {
   return ((value % 360) + 360) % 360;
 }
@@ -249,6 +285,7 @@ function normalizeDegree(value) {
 function degreeToSign(fullDegree) {
   const normalized = normalizeDegree(fullDegree);
   const signIndex = Math.floor(normalized / 30);
+
   return {
     sign: SIGN_NAMES[signIndex],
     degree: Number((normalized % 30).toFixed(4)),
@@ -288,7 +325,7 @@ function findAspects(fromDegree, targets) {
   return found.sort((a, b) => a.orb - b.orb);
 }
 
-function parseBirthToJulianDay(birth) {
+function parseBirthDateTime(birth) {
   if (!birth?.date || !birth?.time || !birth?.timezone) {
     throw new Error('birth.date, birth.time and birth.timezone are required.');
   }
@@ -301,6 +338,11 @@ function parseBirthToJulianDay(birth) {
     throw new Error(`Invalid birth date/time/timezone: ${dt.invalidReason}`);
   }
 
+  return dt;
+}
+
+function parseBirthToJulianDay(birth) {
+  const dt = parseBirthDateTime(birth);
   const utc = dt.toUTC();
   const decimalHour = utc.hour + utc.minute / 60 + utc.second / 3600;
 
@@ -341,6 +383,7 @@ function calculateAsteroidsGate({ birth }) {
 
   const natalTargets = NATAL_ASPECT_TARGETS.map(target => {
     const point = calcPoint(jd, target.id, flags);
+
     return {
       name: target.name,
       full_degree: point.full_degree
@@ -376,47 +419,6 @@ function calculateAsteroidsGate({ birth }) {
     gate: 'asteroids',
     points
   };
-}
-const SOLAR_ARC_POINTS = [
-  { name: 'Sun', id: swisseph.SE_SUN },
-  { name: 'Moon', id: swisseph.SE_MOON },
-  { name: 'Mercury', id: swisseph.SE_MERCURY },
-  { name: 'Venus', id: swisseph.SE_VENUS },
-  { name: 'Mars', id: swisseph.SE_MARS },
-  { name: 'Jupiter', id: swisseph.SE_JUPITER },
-  { name: 'Saturn', id: swisseph.SE_SATURN },
-  { name: 'Uranus', id: swisseph.SE_URANUS },
-  { name: 'Neptune', id: swisseph.SE_NEPTUNE },
-  { name: 'Pluto', id: swisseph.SE_PLUTO }
-];
-
-function parseBirthDateTime(birth) {
-  if (!birth?.date || !birth?.time || !birth?.timezone) {
-    throw new Error('birth.date, birth.time and birth.timezone are required.');
-  }
-
-  const dt = DateTime.fromISO(`${birth.date}T${birth.time}`, {
-    zone: birth.timezone
-  });
-
-  if (!dt.isValid) {
-    throw new Error(`Invalid birth date/time/timezone: ${dt.invalidReason}`);
-  }
-
-  return dt;
-}
-
-function dateTimeToJulianDay(dt) {
-  const utc = dt.toUTC();
-  const decimalHour = utc.hour + utc.minute / 60 + utc.second / 3600;
-
-  return swisseph.swe_julday(
-    utc.year,
-    utc.month,
-    utc.day,
-    decimalHour,
-    swisseph.SE_GREG_CAL
-  );
 }
 
 function buildScanDates(period, fallbackStartDate) {
@@ -461,7 +463,6 @@ function getNatalPointTable(jd, flags, pointList) {
 function solarArcForDate({ natalJd, natalSunDegree, birthDt, targetDt, flags }) {
   const ageDays = targetDt.diff(birthDt, 'days').days;
   const ageYears = ageDays / 365.2425;
-
   const progressedJd = natalJd + ageYears;
   const progressedSun = calcPoint(progressedJd, swisseph.SE_SUN, flags);
 
@@ -470,7 +471,6 @@ function solarArcForDate({ natalJd, natalSunDegree, birthDt, targetDt, flags }) 
 
 function solarArcTopicsForHit(directedPoint, natalPoint) {
   const joined = `${directedPoint} ${natalPoint}`;
-
   const topics = new Set();
 
   if (/Sun|MC|Saturn/i.test(joined)) topics.add('career');
@@ -546,28 +546,20 @@ function calculateSolarArcGate({ birth, period }) {
       }
     }
   }
-const PRIMARY_DIRECTION_POINTS = [
-  { name: 'Sun', id: swisseph.SE_SUN },
-  { name: 'Moon', id: swisseph.SE_MOON },
-  { name: 'Mercury', id: swisseph.SE_MERCURY },
-  { name: 'Venus', id: swisseph.SE_VENUS },
-  { name: 'Mars', id: swisseph.SE_MARS },
-  { name: 'Jupiter', id: swisseph.SE_JUPITER },
-  { name: 'Saturn', id: swisseph.SE_SATURN },
-  { name: 'Uranus', id: swisseph.SE_URANUS },
-  { name: 'Neptune', id: swisseph.SE_NEPTUNE },
-  { name: 'Pluto', id: swisseph.SE_PLUTO }
-];
 
-const PRIMARY_DIRECTION_ASPECT_OFFSETS = [
-  { name: 'Conjunction', offsets: [0] },
-  { name: 'Opposition', offsets: [180] },
-  { name: 'Square', offsets: [90, -90] },
-  { name: 'Trine', offsets: [120, -120] },
-  { name: 'Sextile', offsets: [60, -60] }
-];
+  const hits = [...candidates.values()]
+    .sort((a, b) => a.orb - b.orb)
+    .slice(0, 30);
 
-const NAIBOD_RATE = 0.98564736;
+  return {
+    gate: 'solar_arc',
+    period: period?.start && period?.end
+      ? `${period.start}/${period.end}`
+      : 'default_1_year',
+    arc_method: 'progressed_sun_arc',
+    hits
+  };
+}
 
 function degToRad(deg) {
   return deg * Math.PI / 180;
@@ -760,7 +752,6 @@ function calculatePrimaryDirectionsGate({ birth, period }) {
   const maxAge = Math.max(0, yearsBetweenDateTimes(birthDt, periodEnd));
 
   const points = getPrimaryDirectionPointTable(natalJd, flags, birth);
-
   const promissors = points.filter(p => p.type === 'planet');
   const significators = points;
 
@@ -852,20 +843,6 @@ function calculatePrimaryDirectionsGate({ birth, period }) {
     hits: hits.slice(0, 40)
   };
 }
-  const hits = [...candidates.values()]
-    .sort((a, b) => a.orb - b.orb)
-    .slice(0, 30);
-
-  return {
-    gate: 'solar_arc',
-    period: period?.start && period?.end
-      ? `${period.start}/${period.end}`
-      : 'default_1_year',
-    arc_method: 'progressed_sun_arc',
-    hits
-  };
-}
-
 
 app.post('/advanced-gate', requireSecret, async (req, res) => {
   try {
@@ -881,18 +858,21 @@ app.post('/advanced-gate', requireSecret, async (req, res) => {
         birth: body.birth
       });
     }
-if (requestedGates.includes('solar_arc')) {
-  gates.solar_arc = calculateSolarArcGate({
-    birth: body.birth,
-    period: body.period
-  });
-}
+
+    if (requestedGates.includes('solar_arc')) {
+      gates.solar_arc = calculateSolarArcGate({
+        birth: body.birth,
+        period: body.period
+      });
+    }
+
     if (requestedGates.includes('primary_directions')) {
-  gates.primary_directions = calculatePrimaryDirectionsGate({
-    birth: body.birth,
-    period: body.period
-  });
-}
+      gates.primary_directions = calculatePrimaryDirectionsGate({
+        birth: body.birth,
+        period: body.period
+      });
+    }
+
     return res.json({
       ok: true,
       engine: 'grandmastrolog_advanced_gate_v1',
@@ -907,10 +887,10 @@ if (requestedGates.includes('solar_arc')) {
         message: 'Advanced Gate endpoint çalışıyor. Asteroid Kapısı, Solar Arc ve Primary Direction gerçek hesap verisiyle döndü. Electional sonraki adımda bağlanacak.',
         gates,
         integrity: {
-        asteroids_calculated: Boolean(gates.asteroids),
-        solar_arc_calculated: Boolean(gates.solar_arc),
-        primary_directions_calculated: Boolean(gates.primary_directions),
-        electional_calculated: false
+          asteroids_calculated: Boolean(gates.asteroids),
+          solar_arc_calculated: Boolean(gates.solar_arc),
+          primary_directions_calculated: Boolean(gates.primary_directions),
+          electional_calculated: false
         }
       }
     });
@@ -924,7 +904,6 @@ if (requestedGates.includes('solar_arc')) {
     });
   }
 });
-app.get('/learning/status', requireSecret, async (_req, res) => {
   const enabled = (await getSetting('learning_enabled', 'true')) === 'true';
 
   res.json({
