@@ -9,6 +9,8 @@ import { DateTime } from 'luxon';
 
 const require = createRequire(import.meta.url);
 const swisseph = require('swisseph');
+
+swisseph.swe_set_ephe_path('./ephe');
 const { Pool } = pg;
 const app = express();
 const PORT = process.env.PORT || 3000;
