@@ -297,423 +297,6 @@ const PRIMARY_DIRECTION_ASPECT_OFFSETS = [
 
 const NAIBOD_RATE = 0.98564736;
 
-function normalizeDegree(value) {
-  return ((value % 360) + 360) % 360;
-}
-
-function degreeToSign(fullDegree) {
-  const normalized = normalizeDegree(fullDegree);
-  const signIndex = Math.floor(normalized / 30);
-
-  return {
-    sign: SIGN_NAMES[signIndex],
-    degree: Number((normalized % 30).toFixed(4)),
-    full_degree: Number(normalized.toFixed(4))
-  };
-}
-
-function angularDistance(a, b) {
-  const diff = Math.abs(normalizeDegree(a) - normalizeDegree(b));
-  return diff > 180 ? 360 - diff : diff;
-}
-
-function findAspects(fromDegree, targets) {
-  const found = [];
-
-  for (const target of targets) {
-    const distance = angularDistance(fromDegree, target.full_degree);
-
-    for (const aspect of ASPECTS) {
-      const orb = Math.abs(distance - aspect.angle);
-
-      if (orb <= aspect.orb) {
-        found.push({
-          to: target.name,
-          aspect: aspect.name,
-          orb: Number(orb.toFixed(4)),
-          strength:
-            orb <= 0.3 ? 'very_high' :
-            orb <= 0.8 ? 'high' :
-            orb <= 1.3 ? 'medium' :
-            'low'
-        });
-      }
-    }
-  }
-
-  return found.sort((a, b) => a.orb - b.orb);
-}
-
-function parseBirthDateTime(birth) {
-  if (!birth?.date || !birth?.time || !birth?.timezone) {
-    throw new Error('birth.date, birth.time and birth.timezone are required.');
-  }
-
-  const dt = DateTime.fromISO(`${birth.date}T${birth.time}`, {
-    zone: birth.timezone
-  });
-
-  if (!dt.isValid) {
-    throw new Error(`Invalid birth date/time/timezone: ${dt.invalidReason}`);
-  }
-
-  return dt;
-}
-
-function parseBirthToJulianDay(birth) {
-  const dt = parseBirthDateTime(birth);
-  const utc = dt.toUTC();
-  const decimalHour = utc.hour + utc.minute / 60 + utc.second / 3600;
-
-  return swisseph.swe_julday(
-    utc.year,
-    utc.month,
-    utc.day,
-    decimalHour,
-    swisseph.SE_GREG_CAL
-  );
-}
-
-function calcPoint(jd, pointId, flags) {
-  const result = swisseph.swe_calc_ut(jd, pointId, flags);
-
-  if (result?.error) {
-    throw new Error(result.error);
-  }
-
-  const longitude = Array.isArray(result)
-    ? result[0]
-    : result.longitude;
-
-  const speed = Array.isArray(result)
-    ? result[3]
-    : result.longitudeSpeed;
-
-  if (typeof longitude !== 'number') {
-    throw new Error(`Longitude could not be calculated for point ${pointId}.`);
-  }
-
-  return {
-    full_degree: normalizeDegree(longitude),
-    speed: typeof speed === 'number' ? speed : null,
-    retrograde: typeof speed === 'number' ? speed < 0 : false
-  };
-}
-
-function calculateAsteroidsGate({ birth }) {
-  const jd = parseBirthToJulianDay(birth);
-  const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH;
-
-  const natalTargets = NATAL_ASPECT_TARGETS.map(target => {
-    const point = calcPoint(jd, target.id, flags);
-
-    return {
-      name: target.name,
-      full_degree: point.full_degree
-    };
-  });
-
-  const points = ASTEROID_POINTS.map(asteroid => {
-    try {
-      const point = calcPoint(jd, asteroid.id, flags);
-      const signData = degreeToSign(point.full_degree);
-
-      return {
-        name: asteroid.name,
-        sign: signData.sign,
-        degree: signData.degree,
-        full_degree: signData.full_degree,
-        house: null,
-        retrograde: point.retrograde,
-        speed: point.speed,
-        aspects: findAspects(point.full_degree, natalTargets)
-      };
-    } catch (err) {
-      return {
-        name: asteroid.name,
-        error: err.message
-      };
-    }
-  });
-
-  return {
-    gate: 'asteroids',
-    points
-  };
-}
-
-function buildScanDates(period, fallbackStartDate) {
-  const start = period?.start
-    ? DateTime.fromISO(period.start, { zone: 'utc' })
-    : fallbackStartDate.setZone('utc');
-
-  const end = period?.end
-    ? DateTime.fromISO(period.end, { zone: 'utc' })
-    : start.plus({ years: 1 });
-
-  if (!start.isValid || !end.isValid) {
-    throw new Error('period.start and period.end must be valid ISO dates.');
-  }
-
-  if (end <= start) {
-    throw new Error('period.end must be after period.start.');
-  }
-
-  const totalDays = Math.ceil(end.diff(start, 'days').days);
-  const stepDays = totalDays > 1500 ? 3 : 1;
-  const dates = [];
-
-  for (let i = 0; i <= totalDays; i += stepDays) {
-    dates.push(start.plus({ days: i }));
-  }
-
-  return dates;
-}
-
-function getNatalPointTable(jd, flags, pointList) {
-  return pointList.map(pointDef => {
-    const point = calcPoint(jd, pointDef.id, flags);
-
-    return {
-      name: pointDef.name,
-      full_degree: point.full_degree
-    };
-  });
-}
-
-function solarArcForDate({ natalJd, natalSunDegree, birthDt, targetDt, flags }) {
-  const ageDays = targetDt.diff(birthDt, 'days').days;
-  const ageYears = ageDays / 365.2425;
-  const progressedJd = natalJd + ageYears;
-  const progressedSun = calcPoint(progressedJd, swisseph.SE_SUN, flags);
-
-  return normalizeDegree(progressedSun.full_degree - natalSunDegree);
-}
-
-function solarArcTopicsForHit(directedPoint, natalPoint) {
-  const joined = `${directedPoint} ${natalPoint}`;
-  const topics = new Set();
-
-  if (/Sun|MC|Saturn/i.test(joined)) topics.add('career');
-  if (/Sun|Venus|Jupiter|MC/i.test(joined)) topics.add('visibility');
-  if (/Moon|Venus|Jupiter|Mercury/i.test(joined)) topics.add('money');
-  if (/Venus|Mars|Moon/i.test(joined)) topics.add('relationship');
-  if (/Moon|Mars|Saturn/i.test(joined)) topics.add('body');
-  if (/Saturn|Pluto|Neptune/i.test(joined)) topics.add('hidden_patterns');
-
-  if (!topics.size) topics.add('general');
-
-  return [...topics];
-}
-
-function calculateSolarArcGate({ birth, period }) {
-  const birthDt = parseBirthDateTime(birth);
-  const natalJd = parseBirthToJulianDay(birth);
-  const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH;
-
-  const natalPoints = getNatalPointTable(natalJd, flags, SOLAR_ARC_POINTS);
-  const natalSun = natalPoints.find(p => p.name === 'Sun');
-
-  if (!natalSun) {
-    throw new Error('Natal Sun could not be calculated for Solar Arc.');
-  }
-
-  const scanDates = buildScanDates(period, birthDt);
-  const candidates = new Map();
-
-  for (const targetDt of scanDates) {
-    const arc = solarArcForDate({
-      natalJd,
-      natalSunDegree: natalSun.full_degree,
-      birthDt,
-      targetDt,
-      flags
-    });
-
-    const directedPoints = natalPoints.map(point => ({
-      name: `SA ${point.name}`,
-      natal_name: point.name,
-      full_degree: normalizeDegree(point.full_degree + arc)
-    }));
-
-    for (const directed of directedPoints) {
-      for (const natal of natalPoints) {
-        const distance = angularDistance(directed.full_degree, natal.full_degree);
-
-        for (const aspect of ASPECTS) {
-          const orb = Math.abs(distance - aspect.angle);
-
-          if (orb <= 0.8) {
-            const key = `${directed.name}|${natal.name}|${aspect.name}`;
-            const existing = candidates.get(key);
-
-            if (!existing || orb < existing.orb) {
-              candidates.set(key, {
-                directed_point: directed.name,
-                natal_point: natal.name,
-                aspect: aspect.name,
-                exact_date: targetDt.toISODate(),
-                orb: Number(orb.toFixed(4)),
-                topics: solarArcTopicsForHit(directed.name, natal.name),
-                strength:
-                  orb <= 0.1 ? 'very_high' :
-                  orb <= 0.25 ? 'high' :
-                  orb <= 0.5 ? 'medium' :
-                  'low'
-              });
-            }
-          }
-        }
-      }
-    }
-  }
-
-  const hits = [...candidates.values()]
-    .sort((a, b) => a.orb - b.orb)
-    .slice(0, 30);
-
-  return {
-    gate: 'solar_arc',
-    period: period?.start && period?.end
-      ? `${period.start}/${period.end}`
-      : 'default_1_year',
-    arc_method: 'progressed_sun_arc',
-    hits
-  };
-}
-
-function degToRad(deg) {
-  return deg * Math.PI / 180;
-}
-
-function radToDeg(rad) {
-  return rad * 180 / Math.PI;
-}
-
-function obliquityForJulianDay(jd) {
-  const t = (jd - 2451545.0) / 36525;
-  return 23.43929111 - (0.0130041667 * t);
-}
-
-function eclipticLongitudeToRightAscension(longitude, jd) {
-  const lambda = degToRad(normalizeDegree(longitude));
-  const epsilon = degToRad(obliquityForJulianDay(jd));
-
-  const y = Math.sin(lambda) * Math.cos(epsilon);
-  const x = Math.cos(lambda);
-
-  return normalizeDegree(radToDeg(Math.atan2(y, x)));
-}
-
-function calcEquatorialPoint(jd, pointId, flags) {
-  const ecliptic = calcPoint(jd, pointId, flags);
-
-  return {
-    ra: eclipticLongitudeToRightAscension(ecliptic.full_degree, jd),
-    declination: null
-  };
-}
-  const result = swisseph.swe_calc_ut(
-    jd,
-    pointId,
-    flags | swisseph.SEFLG_EQUATORIAL
-  );
-
-  if (result?.error) {
-    throw new Error(result.error);
-  }
-
-  const rightAscension = Array.isArray(result)
-    ? result[0]
-    : (result.rightAscension ?? result.ra ?? result.longitude);
-
-  const declination = Array.isArray(result)
-    ? result[1]
-    : (result.declination ?? result.latitude);
-
-  if (typeof rightAscension !== 'number') {
-    throw new Error('Right Ascension could not be calculated.');
-  }
-
-  return {
-    ra: normalizeDegree(rightAscension),
-    declination: typeof declination === 'number' ? declination : null
-  };
-}
-
-function tryCalculatePrimaryAngles(jd, birth) {
-  const angles = [];
-
-  try {
-    if (
-      typeof birth?.latitude !== 'number' ||
-      typeof birth?.longitude !== 'number'
-    ) {
-      return angles;
-    }
-
-    const houses = swisseph.swe_houses(
-      jd,
-      Number(birth.latitude),
-      Number(birth.longitude),
-      'P'
-    );
-
-    const asc =
-      houses?.ascendant ??
-      houses?.asc ??
-      houses?.ascmc?.[0] ??
-      null;
-
-    const mc =
-      houses?.mc ??
-      houses?.midheaven ??
-      houses?.ascmc?.[1] ??
-      null;
-
-    if (typeof asc === 'number') {
-      angles.push({
-        name: 'Ascendant',
-        ra: eclipticLongitudeToRightAscension(asc, jd),
-        full_degree: normalizeDegree(asc),
-        type: 'angle'
-      });
-    }
-
-    if (typeof mc === 'number') {
-      angles.push({
-        name: 'MC',
-        ra: eclipticLongitudeToRightAscension(mc, jd),
-        full_degree: normalizeDegree(mc),
-        type: 'angle'
-      });
-    }
-  } catch (err) {
-    console.warn('Primary Direction angles skipped:', err.message);
-  }
-
-  return angles;
-}
-
-function getPrimaryDirectionPointTable(jd, flags, birth) {
-  const planetPoints = PRIMARY_DIRECTION_POINTS.map(pointDef => {
-    const ecliptic = calcPoint(jd, pointDef.id, flags);
-    const equatorial = calcEquatorialPoint(jd, pointDef.id, flags);
-
-    return {
-      name: pointDef.name,
-      full_degree: ecliptic.full_degree,
-      ra: equatorial.ra,
-      declination: equatorial.declination,
-      type: 'planet'
-    };
-  });
-
-  const anglePoints = tryCalculatePrimaryAngles(jd, birth);
-
-  return [...planetPoints, ...anglePoints];
-}
-
 function yearsBetweenDateTimes(fromDt, toDt) {
   return toDt.diff(fromDt, 'days').days / 365.2425;
 }
@@ -728,11 +311,11 @@ function primaryDirectionTopicsForHit(promissor, significator) {
   const joined = `${promissor} ${significator}`;
   const topics = new Set();
 
-  if (/MC|Sun|Saturn|Jupiter/i.test(joined)) topics.add('career');
-  if (/MC|Sun|Venus|Jupiter|Ascendant/i.test(joined)) topics.add('visibility');
+  if (/Sun|Saturn|Jupiter/i.test(joined)) topics.add('career');
+  if (/Sun|Venus|Jupiter/i.test(joined)) topics.add('visibility');
   if (/Moon|Venus|Mercury|Jupiter/i.test(joined)) topics.add('money');
-  if (/Venus|Mars|Moon|Ascendant/i.test(joined)) topics.add('relationship');
-  if (/Moon|Mars|Saturn|Ascendant/i.test(joined)) topics.add('body');
+  if (/Venus|Mars|Moon/i.test(joined)) topics.add('relationship');
+  if (/Moon|Mars|Saturn/i.test(joined)) topics.add('body');
   if (/Saturn|Pluto|Neptune/i.test(joined)) topics.add('hidden_patterns');
 
   if (!topics.size) topics.add('general');
@@ -743,15 +326,14 @@ function primaryDirectionTopicsForHit(promissor, significator) {
 function primaryDirectionStrength({ promissor, significator, aspect, age }) {
   let score = 0;
 
-  if (/Ascendant|MC/i.test(significator)) score += 3;
   if (/Sun|Moon/i.test(significator)) score += 2;
   if (/Sun|Moon|Venus|Mars|Saturn|Jupiter/i.test(promissor)) score += 2;
   if (/Conjunction|Opposition|Square/i.test(aspect)) score += 2;
   if (age >= 0 && age <= 90) score += 1;
 
-  if (score >= 7) return 'very_high';
-  if (score >= 5) return 'high';
-  if (score >= 3) return 'medium';
+  if (score >= 6) return 'very_high';
+  if (score >= 4) return 'high';
+  if (score >= 2) return 'medium';
   return 'low';
 }
 
@@ -779,22 +361,27 @@ function calculatePrimaryDirectionsGate({ birth, period }) {
   const minAge = Math.max(0, yearsBetweenDateTimes(birthDt, periodStart));
   const maxAge = Math.max(0, yearsBetweenDateTimes(birthDt, periodEnd));
 
-  const points = getPrimaryDirectionPointTable(natalJd, flags, birth);
-  const promissors = points.filter(p => p.type === 'planet');
-  const significators = points;
+  const points = PRIMARY_DIRECTION_POINTS.map(pointDef => {
+    const point = calcPoint(natalJd, pointDef.id, flags);
+
+    return {
+      name: pointDef.name,
+      longitude: point.full_degree
+    };
+  });
 
   const hits = [];
   const seen = new Set();
 
-  for (const promissor of promissors) {
-    for (const significator of significators) {
+  for (const promissor of points) {
+    for (const significator of points) {
       if (promissor.name === significator.name) continue;
 
       for (const aspectDef of PRIMARY_DIRECTION_ASPECT_OFFSETS) {
         for (const offset of aspectDef.offsets) {
-          const targetRa = normalizeDegree(significator.ra + offset);
+          const targetLongitude = normalizeDegree(significator.longitude + offset);
 
-          const directArc = normalizeDegree(targetRa - promissor.ra);
+          const directArc = normalizeDegree(targetLongitude - promissor.longitude);
           const directAge = directArc / NAIBOD_RATE;
 
           if (directAge >= minAge && directAge <= maxAge) {
@@ -822,7 +409,7 @@ function calculatePrimaryDirectionsGate({ birth, period }) {
             }
           }
 
-          const converseArc = normalizeDegree(promissor.ra - targetRa);
+          const converseArc = normalizeDegree(promissor.longitude - targetLongitude);
           const converseAge = converseArc / NAIBOD_RATE;
 
           if (converseAge >= minAge && converseAge <= maxAge) {
@@ -864,14 +451,14 @@ function calculatePrimaryDirectionsGate({ birth, period }) {
 
   return {
     gate: 'primary_directions',
-    method: 'equatorial_ra_naibod_direct_converse_v1',
+    method: 'safe_ecliptic_naibod_direct_converse_v1',
+    note: 'Production-safe Primary Direction layer. RA/ASC/MC layer intentionally disabled until stable.',
     period: period?.start && period?.end
       ? `${period.start}/${period.end}`
       : 'default_1_year',
     hits: hits.slice(0, 40)
   };
 }
-
 app.post('/advanced-gate', requireSecret, async (req, res) => {
   try {
     const body = req.body || {};
