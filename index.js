@@ -205,6 +205,176 @@ app.get('/health', async (_req, res) => {
     }
   });
 });
+const SIGN_NAMES = [
+  'Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo',
+  'Libra', 'Scorpio', 'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces'
+];
+
+const ASPECTS = [
+  { name: 'Conjunction', angle: 0, orb: 2.0 },
+  { name: 'Opposition', angle: 180, orb: 2.0 },
+  { name: 'Square', angle: 90, orb: 1.8 },
+  { name: 'Trine', angle: 120, orb: 1.5 },
+  { name: 'Sextile', angle: 60, orb: 1.2 }
+];
+
+const ASTEROID_POINTS = [
+  { name: 'Chiron', id: swisseph.SE_CHIRON },
+  { name: 'Ceres', id: swisseph.SE_CERES },
+  { name: 'Pallas', id: swisseph.SE_PALLAS },
+  { name: 'Juno', id: swisseph.SE_JUNO },
+  { name: 'Vesta', id: swisseph.SE_VESTA },
+  { name: 'Lilith', id: swisseph.SE_MEAN_APOG }
+];
+
+const NATAL_ASPECT_TARGETS = [
+  { name: 'Sun', id: swisseph.SE_SUN },
+  { name: 'Moon', id: swisseph.SE_MOON },
+  { name: 'Mercury', id: swisseph.SE_MERCURY },
+  { name: 'Venus', id: swisseph.SE_VENUS },
+  { name: 'Mars', id: swisseph.SE_MARS },
+  { name: 'Jupiter', id: swisseph.SE_JUPITER },
+  { name: 'Saturn', id: swisseph.SE_SATURN },
+  { name: 'Uranus', id: swisseph.SE_URANUS },
+  { name: 'Neptune', id: swisseph.SE_NEPTUNE },
+  { name: 'Pluto', id: swisseph.SE_PLUTO }
+];
+
+function normalizeDegree(value) {
+  return ((value % 360) + 360) % 360;
+}
+
+function degreeToSign(fullDegree) {
+  const normalized = normalizeDegree(fullDegree);
+  const signIndex = Math.floor(normalized / 30);
+  return {
+    sign: SIGN_NAMES[signIndex],
+    degree: Number((normalized % 30).toFixed(4)),
+    full_degree: Number(normalized.toFixed(4))
+  };
+}
+
+function angularDistance(a, b) {
+  const diff = Math.abs(normalizeDegree(a) - normalizeDegree(b));
+  return diff > 180 ? 360 - diff : diff;
+}
+
+function findAspects(fromDegree, targets) {
+  const found = [];
+
+  for (const target of targets) {
+    const distance = angularDistance(fromDegree, target.full_degree);
+
+    for (const aspect of ASPECTS) {
+      const orb = Math.abs(distance - aspect.angle);
+
+      if (orb <= aspect.orb) {
+        found.push({
+          to: target.name,
+          aspect: aspect.name,
+          orb: Number(orb.toFixed(4)),
+          strength:
+            orb <= 0.3 ? 'very_high' :
+            orb <= 0.8 ? 'high' :
+            orb <= 1.3 ? 'medium' :
+            'low'
+        });
+      }
+    }
+  }
+
+  return found.sort((a, b) => a.orb - b.orb);
+}
+
+function parseBirthToJulianDay(birth) {
+  if (!birth?.date || !birth?.time || !birth?.timezone) {
+    throw new Error('birth.date, birth.time and birth.timezone are required.');
+  }
+
+  const dt = DateTime.fromISO(`${birth.date}T${birth.time}`, {
+    zone: birth.timezone
+  });
+
+  if (!dt.isValid) {
+    throw new Error(`Invalid birth date/time/timezone: ${dt.invalidReason}`);
+  }
+
+  const utc = dt.toUTC();
+  const decimalHour = utc.hour + utc.minute / 60 + utc.second / 3600;
+
+  return swisseph.swe_julday(
+    utc.year,
+    utc.month,
+    utc.day,
+    decimalHour,
+    swisseph.SE_GREG_CAL
+  );
+}
+
+function calcPoint(jd, pointId, flags) {
+  const result = swisseph.swe_calc_ut(jd, pointId, flags);
+
+  if (result?.error) {
+    throw new Error(result.error);
+  }
+
+  const longitude = Array.isArray(result)
+    ? result[0]
+    : result.longitude;
+
+  const speed = Array.isArray(result)
+    ? result[3]
+    : result.longitudeSpeed;
+
+  return {
+    full_degree: normalizeDegree(longitude),
+    speed: typeof speed === 'number' ? speed : null,
+    retrograde: typeof speed === 'number' ? speed < 0 : false
+  };
+}
+
+function calculateAsteroidsGate({ birth }) {
+  const jd = parseBirthToJulianDay(birth);
+  const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH;
+
+  const natalTargets = NATAL_ASPECT_TARGETS.map(target => {
+    const point = calcPoint(jd, target.id, flags);
+    return {
+      name: target.name,
+      full_degree: point.full_degree
+    };
+  });
+
+  const points = [];
+
+  for (const asteroid of ASTEROID_POINTS) {
+    try {
+      const point = calcPoint(jd, asteroid.id, flags);
+      const signData = degreeToSign(point.full_degree);
+
+      points.push({
+        name: asteroid.name,
+        sign: signData.sign,
+        degree: signData.degree,
+        full_degree: signData.full_degree,
+        house: null,
+        retrograde: point.retrograde,
+        speed: point.speed,
+        aspects: findAspects(point.full_degree, natalTargets)
+      });
+    } catch (err) {
+      points.push({
+        name: asteroid.name,
+        error: err.message
+      });
+    }
+  }
+
+  return {
+    gate: 'asteroids',
+    points
+  };
+}
 app.post('/advanced-gate', requireSecret, async (req, res) => {
   const body = req.body || {};
 
