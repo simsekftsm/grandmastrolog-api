@@ -606,6 +606,13 @@ function eclipticLongitudeToRightAscension(longitude, jd) {
 }
 
 function calcEquatorialPoint(jd, pointId, flags) {
+  const ecliptic = calcPoint(jd, pointId, flags);
+
+  return {
+    ra: eclipticLongitudeToRightAscension(ecliptic.full_degree, jd),
+    declination: null
+  };
+}
   const result = swisseph.swe_calc_ut(
     jd,
     pointId,
