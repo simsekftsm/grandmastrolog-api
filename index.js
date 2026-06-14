@@ -322,7 +322,21 @@ function parseBirthToJulianDay(birth) {
     swisseph.SE_GREG_CAL
   );
 }
+function dateTimeToJulianDay(dt) {
+  const utc = dt.toUTC();
+  const decimalHour =
+    utc.hour +
+    utc.minute / 60 +
+    utc.second / 3600;
 
+  return swisseph.swe_julday(
+    utc.year,
+    utc.month,
+    utc.day,
+    decimalHour,
+    swisseph.SE_GREG_CAL
+  );
+}
 function calcPoint(jd, pointId, flags) {
   const result = swisseph.swe_calc_ut(jd, pointId, flags);
 
