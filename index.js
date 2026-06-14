@@ -1114,11 +1114,23 @@ function calculateElectionalGate({ birth, period, focus = [], electional_request
       score: scored.score,
       grade: scored.grade,
       moon: {
-        sign: planets.Moon.sign,
-        degree: Number(planets.Moon.degree.toFixed(4)),
-        full_degree: Number(planets.Moon.full_degree.toFixed(4)),
-        phase: electionalMoonPhase(planets.Moon, planets.Sun)
-      },
+  sign: planets.Moon.sign,
+  degree: Number(
+    (
+      typeof planets.Moon.degree === 'number'
+        ? planets.Moon.degree
+        : planets.Moon.full_degree % 30
+    ).toFixed(4)
+  ),
+  full_degree: Number(
+    (
+      typeof planets.Moon.full_degree === 'number'
+        ? planets.Moon.full_degree
+        : 0
+    ).toFixed(4)
+  ),
+  phase: electionalMoonPhase(planets.Moon, planets.Sun)
+},
       mercury_retrograde: Boolean(planets.Mercury.retrograde),
       venus_retrograde: Boolean(planets.Venus.retrograde),
       ascendant: angles.ascendant,
