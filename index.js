@@ -9,12 +9,10 @@ import { DateTime } from 'luxon';
 
 const require = createRequire(import.meta.url);
 const swisseph = require('swisseph');
-
 swisseph.swe_set_ephe_path('./ephe');
 
 const { Pool } = pg;
 const app = express();
-
 const PORT = process.env.PORT || 3000;
 const GM_API_SECRET = process.env.GM_API_SECRET || '';
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
@@ -36,19 +34,11 @@ const groq = process.env.GROQ_API_KEY
 
 function requireSecret(req, res, next) {
   if (!GM_API_SECRET) {
-    return res.status(500).json({
-      ok: false,
-      error: 'GM_API_SECRET is not configured.'
-    });
+    return res.status(500).json({ ok: false, error: 'GM_API_SECRET is not configured.' });
   }
 
-  const incoming = req.header('x-gm-secret');
-
-  if (incoming !== GM_API_SECRET) {
-    return res.status(401).json({
-      ok: false,
-      error: 'Unauthorized: invalid x-gm-secret.'
-    });
+  if (req.header('x-gm-secret') !== GM_API_SECRET) {
+    return res.status(401).json({ ok: false, error: 'Unauthorized: invalid x-gm-secret.' });
   }
 
   next();
@@ -92,11 +82,7 @@ async function initDb() {
 async function getSetting(key, fallback) {
   if (!pool) return fallback;
 
-  const result = await pool.query(
-    'SELECT value FROM gm_settings WHERE key=$1',
-    [key]
-  );
-
+  const result = await pool.query('SELECT value FROM gm_settings WHERE key=$1', [key]);
   return result.rows[0]?.value ?? fallback;
 }
 
@@ -143,9 +129,7 @@ async function getMemories(user_id = 'default') {
 }
 
 async function summarizeFeedbackWithGroq({ feedback, user_id = 'default' }) {
-  if (!groq) {
-    return `Aktif oturum geri bildirimi: ${feedback}`;
-  }
+  if (!groq) return `Aktif oturum geri bildirimi: ${feedback}`;
 
   const memories = await getMemories(user_id);
   const memoryText = memories.map(m => `- [${m.type}] ${m.content}`).join('\n');
@@ -182,10 +166,6 @@ Bunu tek kısa aktif kalibrasyon notuna dönüştür.`
     || `Aktif oturum geri bildirimi: ${feedback}`;
 }
 
-/* -------------------------------------------------------
-   HEALTH
-------------------------------------------------------- */
-
 app.get('/health', async (_req, res) => {
   let swissephOk = false;
   let swissephSunDegree = null;
@@ -194,14 +174,11 @@ app.get('/health', async (_req, res) => {
   try {
     const jd = swisseph.swe_julday(1990, 3, 10, 13.5, swisseph.SE_GREG_CAL);
     const flag = swisseph.SEFLG_SPEED | swisseph.SEFLG_MOSEPH;
-
     const sun = swisseph.swe_calc_ut(jd, swisseph.SE_SUN, flag);
 
     if (!sun?.error) {
       swissephOk = true;
-      swissephSunDegree = Array.isArray(sun)
-        ? sun[0]
-        : (sun.longitude ?? sun[0] ?? null);
+      swissephSunDegree = Array.isArray(sun) ? sun[0] : (sun.longitude ?? null);
     } else {
       swissephError = sun.error;
     }
@@ -222,9 +199,7 @@ app.get('/health', async (_req, res) => {
   });
 });
 
-/* -------------------------------------------------------
-   ADVANCED GATE ENGINE
-------------------------------------------------------- */
+/* ADVANCED GATE ENGINE */
 
 const SIGN_NAMES = [
   'Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo',
@@ -248,33 +223,7 @@ const ASTEROID_POINTS = [
   { name: 'Lilith', id: swisseph.SE_MEAN_APOG }
 ];
 
-const NATAL_ASPECT_TARGETS = [
-  { name: 'Sun', id: swisseph.SE_SUN },
-  { name: 'Moon', id: swisseph.SE_MOON },
-  { name: 'Mercury', id: swisseph.SE_MERCURY },
-  { name: 'Venus', id: swisseph.SE_VENUS },
-  { name: 'Mars', id: swisseph.SE_MARS },
-  { name: 'Jupiter', id: swisseph.SE_JUPITER },
-  { name: 'Saturn', id: swisseph.SE_SATURN },
-  { name: 'Uranus', id: swisseph.SE_URANUS },
-  { name: 'Neptune', id: swisseph.SE_NEPTUNE },
-  { name: 'Pluto', id: swisseph.SE_PLUTO }
-];
-
-const SOLAR_ARC_POINTS = [
-  { name: 'Sun', id: swisseph.SE_SUN },
-  { name: 'Moon', id: swisseph.SE_MOON },
-  { name: 'Mercury', id: swisseph.SE_MERCURY },
-  { name: 'Venus', id: swisseph.SE_VENUS },
-  { name: 'Mars', id: swisseph.SE_MARS },
-  { name: 'Jupiter', id: swisseph.SE_JUPITER },
-  { name: 'Saturn', id: swisseph.SE_SATURN },
-  { name: 'Uranus', id: swisseph.SE_URANUS },
-  { name: 'Neptune', id: swisseph.SE_NEPTUNE },
-  { name: 'Pluto', id: swisseph.SE_PLUTO }
-];
-
-const PRIMARY_DIRECTION_POINTS = [
+const PLANET_POINTS = [
   { name: 'Sun', id: swisseph.SE_SUN },
   { name: 'Moon', id: swisseph.SE_MOON },
   { name: 'Mercury', id: swisseph.SE_MERCURY },
@@ -297,14 +246,280 @@ const PRIMARY_DIRECTION_ASPECT_OFFSETS = [
 
 const NAIBOD_RATE = 0.98564736;
 
+function normalizeDegree(value) {
+  return ((value % 360) + 360) % 360;
+}
+
+function degreeToSign(fullDegree) {
+  const normalized = normalizeDegree(fullDegree);
+  const signIndex = Math.floor(normalized / 30);
+
+  return {
+    sign: SIGN_NAMES[signIndex],
+    degree: Number((normalized % 30).toFixed(4)),
+    full_degree: Number(normalized.toFixed(4))
+  };
+}
+
+function angularDistance(a, b) {
+  const diff = Math.abs(normalizeDegree(a) - normalizeDegree(b));
+  return diff > 180 ? 360 - diff : diff;
+}
+
+function findAspects(fromDegree, targets) {
+  const found = [];
+
+  for (const target of targets) {
+    const distance = angularDistance(fromDegree, target.full_degree);
+
+    for (const aspect of ASPECTS) {
+      const orb = Math.abs(distance - aspect.angle);
+
+      if (orb <= aspect.orb) {
+        found.push({
+          to: target.name,
+          aspect: aspect.name,
+          orb: Number(orb.toFixed(4)),
+          strength:
+            orb <= 0.3 ? 'very_high' :
+            orb <= 0.8 ? 'high' :
+            orb <= 1.3 ? 'medium' :
+            'low'
+        });
+      }
+    }
+  }
+
+  return found.sort((a, b) => a.orb - b.orb);
+}
+
+function parseBirthDateTime(birth) {
+  if (!birth?.date || !birth?.time || !birth?.timezone) {
+    throw new Error('birth.date, birth.time and birth.timezone are required.');
+  }
+
+  const dt = DateTime.fromISO(`${birth.date}T${birth.time}`, {
+    zone: birth.timezone
+  });
+
+  if (!dt.isValid) {
+    throw new Error(`Invalid birth date/time/timezone: ${dt.invalidReason}`);
+  }
+
+  return dt;
+}
+
+function parseBirthToJulianDay(birth) {
+  const dt = parseBirthDateTime(birth);
+  const utc = dt.toUTC();
+  const decimalHour = utc.hour + utc.minute / 60 + utc.second / 3600;
+
+  return swisseph.swe_julday(
+    utc.year,
+    utc.month,
+    utc.day,
+    decimalHour,
+    swisseph.SE_GREG_CAL
+  );
+}
+
+function calcPoint(jd, pointId, flags) {
+  const result = swisseph.swe_calc_ut(jd, pointId, flags);
+
+  if (result?.error) {
+    throw new Error(result.error);
+  }
+
+  const longitude = Array.isArray(result) ? result[0] : result.longitude;
+  const speed = Array.isArray(result) ? result[3] : result.longitudeSpeed;
+
+  if (typeof longitude !== 'number') {
+    throw new Error(`Longitude could not be calculated for point ${pointId}.`);
+  }
+
+  return {
+    full_degree: normalizeDegree(longitude),
+    speed: typeof speed === 'number' ? speed : null,
+    retrograde: typeof speed === 'number' ? speed < 0 : false
+  };
+}
+
+function getNatalPointTable(jd, flags, pointList = PLANET_POINTS) {
+  return pointList.map(pointDef => {
+    const point = calcPoint(jd, pointDef.id, flags);
+
+    return {
+      name: pointDef.name,
+      full_degree: point.full_degree
+    };
+  });
+}
+
+function buildScanDates(period, fallbackStartDate) {
+  const start = period?.start
+    ? DateTime.fromISO(period.start, { zone: 'utc' })
+    : fallbackStartDate.setZone('utc');
+
+  const end = period?.end
+    ? DateTime.fromISO(period.end, { zone: 'utc' })
+    : start.plus({ years: 1 });
+
+  if (!start.isValid || !end.isValid) {
+    throw new Error('period.start and period.end must be valid ISO dates.');
+  }
+
+  if (end <= start) {
+    throw new Error('period.end must be after period.start.');
+  }
+
+  const totalDays = Math.ceil(end.diff(start, 'days').days);
+  const stepDays = totalDays > 1500 ? 3 : 1;
+  const dates = [];
+
+  for (let i = 0; i <= totalDays; i += stepDays) {
+    dates.push(start.plus({ days: i }));
+  }
+
+  return dates;
+}
+
+function calculateAsteroidsGate({ birth }) {
+  const jd = parseBirthToJulianDay(birth);
+  const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH;
+  const natalTargets = getNatalPointTable(jd, flags, PLANET_POINTS);
+
+  const points = ASTEROID_POINTS.map(asteroid => {
+    try {
+      const point = calcPoint(jd, asteroid.id, flags);
+      const signData = degreeToSign(point.full_degree);
+
+      return {
+        name: asteroid.name,
+        sign: signData.sign,
+        degree: signData.degree,
+        full_degree: signData.full_degree,
+        house: null,
+        retrograde: point.retrograde,
+        speed: point.speed,
+        aspects: findAspects(point.full_degree, natalTargets)
+      };
+    } catch (err) {
+      return {
+        name: asteroid.name,
+        error: err.message
+      };
+    }
+  });
+
+  return { gate: 'asteroids', points };
+}
+
+function solarArcForDate({ natalJd, natalSunDegree, birthDt, targetDt, flags }) {
+  const ageDays = targetDt.diff(birthDt, 'days').days;
+  const ageYears = ageDays / 365.2425;
+  const progressedJd = natalJd + ageYears;
+  const progressedSun = calcPoint(progressedJd, swisseph.SE_SUN, flags);
+
+  return normalizeDegree(progressedSun.full_degree - natalSunDegree);
+}
+
+function solarArcTopicsForHit(directedPoint, natalPoint) {
+  const joined = `${directedPoint} ${natalPoint}`;
+  const topics = new Set();
+
+  if (/Sun|MC|Saturn/i.test(joined)) topics.add('career');
+  if (/Sun|Venus|Jupiter|MC/i.test(joined)) topics.add('visibility');
+  if (/Moon|Venus|Jupiter|Mercury/i.test(joined)) topics.add('money');
+  if (/Venus|Mars|Moon/i.test(joined)) topics.add('relationship');
+  if (/Moon|Mars|Saturn/i.test(joined)) topics.add('body');
+  if (/Saturn|Pluto|Neptune/i.test(joined)) topics.add('hidden_patterns');
+
+  if (!topics.size) topics.add('general');
+
+  return [...topics];
+}
+
+function calculateSolarArcGate({ birth, period }) {
+  const birthDt = parseBirthDateTime(birth);
+  const natalJd = parseBirthToJulianDay(birth);
+  const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH;
+  const natalPoints = getNatalPointTable(natalJd, flags, PLANET_POINTS);
+  const natalSun = natalPoints.find(p => p.name === 'Sun');
+
+  if (!natalSun) {
+    throw new Error('Natal Sun could not be calculated for Solar Arc.');
+  }
+
+  const scanDates = buildScanDates(period, birthDt);
+  const candidates = new Map();
+
+  for (const targetDt of scanDates) {
+    const arc = solarArcForDate({
+      natalJd,
+      natalSunDegree: natalSun.full_degree,
+      birthDt,
+      targetDt,
+      flags
+    });
+
+    const directedPoints = natalPoints.map(point => ({
+      name: `SA ${point.name}`,
+      natal_name: point.name,
+      full_degree: normalizeDegree(point.full_degree + arc)
+    }));
+
+    for (const directed of directedPoints) {
+      for (const natal of natalPoints) {
+        const distance = angularDistance(directed.full_degree, natal.full_degree);
+
+        for (const aspect of ASPECTS) {
+          const orb = Math.abs(distance - aspect.angle);
+
+          if (orb <= 0.8) {
+            const key = `${directed.name}|${natal.name}|${aspect.name}`;
+            const existing = candidates.get(key);
+
+            if (!existing || orb < existing.orb) {
+              candidates.set(key, {
+                directed_point: directed.name,
+                natal_point: natal.name,
+                aspect: aspect.name,
+                exact_date: targetDt.toISODate(),
+                orb: Number(orb.toFixed(4)),
+                topics: solarArcTopicsForHit(directed.name, natal.name),
+                strength:
+                  orb <= 0.1 ? 'very_high' :
+                  orb <= 0.25 ? 'high' :
+                  orb <= 0.5 ? 'medium' :
+                  'low'
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const hits = [...candidates.values()]
+    .sort((a, b) => a.orb - b.orb)
+    .slice(0, 30);
+
+  return {
+    gate: 'solar_arc',
+    period: period?.start && period?.end
+      ? `${period.start}/${period.end}`
+      : 'default_1_year',
+    arc_method: 'progressed_sun_arc',
+    hits
+  };
+}
+
 function yearsBetweenDateTimes(fromDt, toDt) {
   return toDt.diff(fromDt, 'days').days / 365.2425;
 }
 
 function dateFromAgeYears(birthDt, ageYears) {
-  return birthDt
-    .plus({ days: ageYears * 365.2425 })
-    .toISODate();
+  return birthDt.plus({ days: ageYears * 365.2425 }).toISODate();
 }
 
 function primaryDirectionTopicsForHit(promissor, significator) {
@@ -361,13 +576,9 @@ function calculatePrimaryDirectionsGate({ birth, period }) {
   const minAge = Math.max(0, yearsBetweenDateTimes(birthDt, periodStart));
   const maxAge = Math.max(0, yearsBetweenDateTimes(birthDt, periodEnd));
 
-  const points = PRIMARY_DIRECTION_POINTS.map(pointDef => {
+  const points = PLANET_POINTS.map(pointDef => {
     const point = calcPoint(natalJd, pointDef.id, flags);
-
-    return {
-      name: pointDef.name,
-      longitude: point.full_degree
-    };
+    return { name: pointDef.name, longitude: point.full_degree };
   });
 
   const hits = [];
@@ -389,7 +600,6 @@ function calculatePrimaryDirectionsGate({ birth, period }) {
 
             if (!seen.has(key)) {
               seen.add(key);
-
               hits.push({
                 promissor: promissor.name,
                 significator: significator.name,
@@ -417,7 +627,6 @@ function calculatePrimaryDirectionsGate({ birth, period }) {
 
             if (!seen.has(key)) {
               seen.add(key);
-
               hits.push({
                 promissor: promissor.name,
                 significator: significator.name,
@@ -459,33 +668,50 @@ function calculatePrimaryDirectionsGate({ birth, period }) {
     hits: hits.slice(0, 40)
   };
 }
+
+function normalizeRequestedGates(value) {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map(item => String(item || '').trim().toLowerCase().replace(/\s+/g, '_'))
+    .filter(Boolean);
+}
+
 app.post('/advanced-gate', requireSecret, async (req, res) => {
   try {
     const body = req.body || {};
-    const requestedGates = Array.isArray(body.requested_gates)
-      ? body.requested_gates
-      : [];
-
+    const requestedGates = normalizeRequestedGates(body.requested_gates);
     const gates = {};
+    const gate_errors = {};
+
+    const runGate = (gateName, fn) => {
+      try {
+        gates[gateName] = fn();
+      } catch (err) {
+        gate_errors[gateName] = err.message;
+      }
+    };
 
     if (requestedGates.includes('asteroids')) {
-      gates.asteroids = calculateAsteroidsGate({
-        birth: body.birth
-      });
+      runGate('asteroids', () => calculateAsteroidsGate({ birth: body.birth }));
     }
 
     if (requestedGates.includes('solar_arc')) {
-      gates.solar_arc = calculateSolarArcGate({
+      runGate('solar_arc', () => calculateSolarArcGate({
         birth: body.birth,
         period: body.period
-      });
+      }));
     }
 
     if (requestedGates.includes('primary_directions')) {
-      gates.primary_directions = calculatePrimaryDirectionsGate({
+      runGate('primary_directions', () => calculatePrimaryDirectionsGate({
         birth: body.birth,
         period: body.period
-      });
+      }));
+    }
+
+    if (requestedGates.includes('electional')) {
+      gate_errors.electional = 'Electional gate is acknowledged but not calculated yet.';
     }
 
     return res.json({
@@ -499,8 +725,9 @@ app.post('/advanced-gate', requireSecret, async (req, res) => {
       },
       advanced_gate_packet: {
         status: 'calculated',
-        message: 'Advanced Gate endpoint çalışıyor. Asteroid Kapısı, Solar Arc ve Primary Direction gerçek hesap verisiyle döndü. Electional sonraki adımda bağlanacak.',
+        message: 'Advanced Gate endpoint çalışıyor. Asteroid Kapısı, Solar Arc ve Primary Direction güvenli hesap verisiyle döndü. Electional sonraki adımda bağlanacak.',
         gates,
+        gate_errors,
         integrity: {
           asteroids_calculated: Boolean(gates.asteroids),
           solar_arc_calculated: Boolean(gates.solar_arc),
@@ -520,9 +747,7 @@ app.post('/advanced-gate', requireSecret, async (req, res) => {
   }
 });
 
-/* -------------------------------------------------------
-   LEARNING API
-------------------------------------------------------- */
+/* LEARNING API */
 
 app.get('/learning/status', requireSecret, async (_req, res) => {
   const enabled = (await getSetting('learning_enabled', 'true')) === 'true';
@@ -562,17 +787,13 @@ app.get('/context', requireSecret, async (req, res) => {
   }
 
   const user_id = String(req.query.user_id || 'default');
-
   const limitRaw = Number(req.query.limit || 20);
   const offsetRaw = Number(req.query.offset || 0);
-
   const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 20, 1), 50);
   const offset = Math.max(Number.isFinite(offsetRaw) ? offsetRaw : 0, 0);
-
   const enabledOnly = String(req.query.enabled_only ?? 'true') !== 'false';
   const summaryOnly = String(req.query.summary_only ?? 'true') !== 'false';
   const typeFilter = req.query.type ? String(req.query.type) : null;
-
   const enabled = (await getSetting('learning_enabled', 'true')) === 'true';
 
   if (!enabled) {
@@ -612,7 +833,6 @@ app.get('/context', requireSecret, async (req, res) => {
   );
 
   const total = Number(totalResult.rows[0]?.total || 0);
-
   const pageParams = [...params, limit, offset];
 
   const pageResult = await pool.query(
@@ -629,7 +849,6 @@ app.get('/context', requireSecret, async (req, res) => {
 
   const memories = pageResult.rows.map(m => {
     const content = String(m.content || '');
-
     const base = {
       id: String(m.id),
       user_id: String(m.user_id || user_id),
@@ -673,17 +892,11 @@ app.post('/feedback', requireSecret, async (req, res) => {
   const { user_id = 'default', message, category = 'general' } = req.body || {};
 
   if (!message || typeof message !== 'string') {
-    return res.status(400).json({
-      ok: false,
-      error: 'message is required.'
-    });
+    return res.status(400).json({ ok: false, error: 'message is required.' });
   }
 
   if (!pool) {
-    return res.status(500).json({
-      ok: false,
-      error: 'DATABASE_URL is not configured.'
-    });
+    return res.status(500).json({ ok: false, error: 'DATABASE_URL is not configured.' });
   }
 
   await pool.query(
@@ -703,7 +916,6 @@ app.post('/feedback', requireSecret, async (req, res) => {
   }
 
   const summary = await summarizeFeedbackWithGroq({ feedback: message, user_id });
-
   const memory = await addMemory({
     user_id,
     type: `feedback:${category}`,
@@ -723,10 +935,7 @@ app.post('/learn', requireSecret, async (req, res) => {
   const { user_id = 'default', type = 'manual', content } = req.body || {};
 
   if (!content || typeof content !== 'string') {
-    return res.status(400).json({
-      ok: false,
-      error: 'content is required.'
-    });
+    return res.status(400).json({ ok: false, error: 'content is required.' });
   }
 
   const enabled = (await getSetting('learning_enabled', 'true')) === 'true';
@@ -740,11 +949,7 @@ app.post('/learn', requireSecret, async (req, res) => {
     });
   }
 
-  const memory = await addMemory({
-    user_id,
-    type,
-    content
-  });
+  const memory = await addMemory({ user_id, type, content });
 
   res.json({
     ok: true,
@@ -756,10 +961,7 @@ app.post('/learn', requireSecret, async (req, res) => {
 
 app.delete('/memory/:id', requireSecret, async (req, res) => {
   if (!pool) {
-    return res.status(500).json({
-      ok: false,
-      error: 'DATABASE_URL is not configured.'
-    });
+    return res.status(500).json({ ok: false, error: 'DATABASE_URL is not configured.' });
   }
 
   await pool.query(
@@ -775,10 +977,7 @@ app.delete('/memory/:id', requireSecret, async (req, res) => {
 
 app.post('/memory/bulk-disable', requireSecret, async (req, res) => {
   if (!pool) {
-    return res.status(500).json({
-      ok: false,
-      error: 'DATABASE_URL is not configured.'
-    });
+    return res.status(500).json({ ok: false, error: 'DATABASE_URL is not configured.' });
   }
 
   try {
@@ -789,10 +988,7 @@ app.post('/memory/bulk-disable', requireSecret, async (req, res) => {
     const uniqueIds = [...new Set(ids)];
 
     if (!uniqueIds.length) {
-      return res.status(400).json({
-        ok: false,
-        error: 'ids array is required.'
-      });
+      return res.status(400).json({ ok: false, error: 'ids array is required.' });
     }
 
     const result = await pool.query(
@@ -823,10 +1019,7 @@ app.post('/memory/bulk-disable', requireSecret, async (req, res) => {
 
 app.post('/memory/upsert-active-context', requireSecret, async (req, res) => {
   if (!pool) {
-    return res.status(500).json({
-      ok: false,
-      error: 'DATABASE_URL is not configured.'
-    });
+    return res.status(500).json({ ok: false, error: 'DATABASE_URL is not configured.' });
   }
 
   const {
@@ -836,10 +1029,7 @@ app.post('/memory/upsert-active-context', requireSecret, async (req, res) => {
   } = req.body || {};
 
   if (!content || typeof content !== 'string') {
-    return res.status(400).json({
-      ok: false,
-      error: 'content is required.'
-    });
+    return res.status(400).json({ ok: false, error: 'content is required.' });
   }
 
   try {
@@ -923,10 +1113,6 @@ app.post('/memory/upsert-active-context', requireSecret, async (req, res) => {
     });
   }
 });
-
-/* -------------------------------------------------------
-   START SERVER
-------------------------------------------------------- */
 
 initDb()
   .then(() => {
