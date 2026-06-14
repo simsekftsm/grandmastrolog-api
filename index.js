@@ -1165,7 +1165,14 @@ app.post('/advanced-gate', requireSecret, async (req, res) => {
         period: body.period
       }));
     }
-
+if (requestedGates.includes('electional')) {
+  gates.electional = calculateElectionalGate({
+    birth: body.birth,
+    period: body.period,
+    focus: body.focus,
+    electional_request: body.electional_request
+  });
+}
     if (requestedGates.includes('electional')) {
       gate_errors.electional = 'Electional gate is acknowledged but not calculated yet.';
     }
