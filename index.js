@@ -11,8 +11,10 @@ const require = createRequire(import.meta.url);
 const swisseph = require('swisseph');
 
 swisseph.swe_set_ephe_path('./ephe');
+
 const { Pool } = pg;
 const app = express();
+
 const PORT = process.env.PORT || 3000;
 const GM_API_SECRET = process.env.GM_API_SECRET || '';
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
@@ -34,13 +36,19 @@ const groq = process.env.GROQ_API_KEY
 
 function requireSecret(req, res, next) {
   if (!GM_API_SECRET) {
-    return res.status(500).json({ ok: false, error: 'GM_API_SECRET is not configured.' });
+    return res.status(500).json({
+      ok: false,
+      error: 'GM_API_SECRET is not configured.'
+    });
   }
 
   const incoming = req.header('x-gm-secret');
 
   if (incoming !== GM_API_SECRET) {
-    return res.status(401).json({ ok: false, error: 'Unauthorized: invalid x-gm-secret.' });
+    return res.status(401).json({
+      ok: false,
+      error: 'Unauthorized: invalid x-gm-secret.'
+    });
   }
 
   next();
@@ -174,6 +182,10 @@ Bunu tek kısa aktif kalibrasyon notuna dönüştür.`
     || `Aktif oturum geri bildirimi: ${feedback}`;
 }
 
+/* -------------------------------------------------------
+   HEALTH
+------------------------------------------------------- */
+
 app.get('/health', async (_req, res) => {
   let swissephOk = false;
   let swissephSunDegree = null;
@@ -187,7 +199,9 @@ app.get('/health', async (_req, res) => {
 
     if (!sun?.error) {
       swissephOk = true;
-      swissephSunDegree = Array.isArray(sun) ? sun[0] : (sun.longitude ?? sun[0] ?? null);
+      swissephSunDegree = Array.isArray(sun)
+        ? sun[0]
+        : (sun.longitude ?? sun[0] ?? null);
     } else {
       swissephError = sun.error;
     }
@@ -207,6 +221,11 @@ app.get('/health', async (_req, res) => {
     }
   });
 });
+
+/* -------------------------------------------------------
+   ADVANCED GATE ENGINE
+------------------------------------------------------- */
+
 const SIGN_NAMES = [
   'Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo',
   'Libra', 'Scorpio', 'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces'
@@ -370,6 +389,10 @@ function calcPoint(jd, pointId, flags) {
     ? result[3]
     : result.longitudeSpeed;
 
+  if (typeof longitude !== 'number') {
+    throw new Error(`Longitude could not be calculated for point ${pointId}.`);
+  }
+
   return {
     full_degree: normalizeDegree(longitude),
     speed: typeof speed === 'number' ? speed : null,
@@ -390,14 +413,12 @@ function calculateAsteroidsGate({ birth }) {
     };
   });
 
-  const points = [];
-
-  for (const asteroid of ASTEROID_POINTS) {
+  const points = ASTEROID_POINTS.map(asteroid => {
     try {
       const point = calcPoint(jd, asteroid.id, flags);
       const signData = degreeToSign(point.full_degree);
 
-      points.push({
+      return {
         name: asteroid.name,
         sign: signData.sign,
         degree: signData.degree,
@@ -406,14 +427,14 @@ function calculateAsteroidsGate({ birth }) {
         retrograde: point.retrograde,
         speed: point.speed,
         aspects: findAspects(point.full_degree, natalTargets)
-      });
+      };
     } catch (err) {
-      points.push({
+      return {
         name: asteroid.name,
         error: err.message
-      });
+      };
     }
-  }
+  });
 
   return {
     gate: 'asteroids',
@@ -904,6 +925,12 @@ app.post('/advanced-gate', requireSecret, async (req, res) => {
     });
   }
 });
+
+/* -------------------------------------------------------
+   LEARNING API
+------------------------------------------------------- */
+
+app.get('/learning/status', requireSecret, async (_req, res) => {
   const enabled = (await getSetting('learning_enabled', 'true')) === 'true';
 
   res.json({
@@ -1082,6 +1109,7 @@ app.post('/feedback', requireSecret, async (req, res) => {
   }
 
   const summary = await summarizeFeedbackWithGroq({ feedback: message, user_id });
+
   const memory = await addMemory({
     user_id,
     type: `feedback:${category}`,
@@ -1118,7 +1146,11 @@ app.post('/learn', requireSecret, async (req, res) => {
     });
   }
 
-  const memory = await addMemory({ user_id, type, content });
+  const memory = await addMemory({
+    user_id,
+    type,
+    content
+  });
 
   res.json({
     ok: true,
@@ -1194,6 +1226,7 @@ app.post('/memory/bulk-disable', requireSecret, async (req, res) => {
     });
   }
 });
+
 app.post('/memory/upsert-active-context', requireSecret, async (req, res) => {
   if (!pool) {
     return res.status(500).json({
@@ -1296,6 +1329,10 @@ app.post('/memory/upsert-active-context', requireSecret, async (req, res) => {
     });
   }
 });
+
+/* -------------------------------------------------------
+   START SERVER
+------------------------------------------------------- */
 
 initDb()
   .then(() => {
