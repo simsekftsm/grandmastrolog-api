@@ -1721,6 +1721,51 @@ async function cleanupReportFiles(id, inputPath, outputPath) {
   }, REPORT_TTL_MS).unref?.();
 }
 
+
+const REPORT_SIGN_TR_MAP = Object.freeze({
+  Aries: 'Koç',
+  Taurus: 'Boğa',
+  Gemini: 'İkizler',
+  Cancer: 'Yengeç',
+  Leo: 'Aslan',
+  Virgo: 'Başak',
+  Libra: 'Terazi',
+  Scorpio: 'Akrep',
+  Sagittarius: 'Yay',
+  Capricorn: 'Oğlak',
+  Aquarius: 'Kova',
+  Pisces: 'Balık'
+});
+
+function normalizeReportSign(value) {
+  if (typeof value !== 'string') return value;
+  const sign = value.trim();
+  return REPORT_SIGN_TR_MAP[sign] || sign;
+}
+
+function normalizeReportPayloadSigns(payload) {
+  payload.sun_sign = normalizeReportSign(payload.sun_sign);
+  payload.asc_sign = normalizeReportSign(payload.asc_sign);
+
+  if (Array.isArray(payload.placements)) {
+    payload.placements = payload.placements.map((placement) => {
+      if (!placement || typeof placement !== 'object') return placement;
+
+      const sourceSign =
+        typeof placement.sign_tr === 'string' && placement.sign_tr.trim()
+          ? placement.sign_tr
+          : placement.sign;
+
+      return {
+        ...placement,
+        sign: normalizeReportSign(sourceSign)
+      };
+    });
+  }
+
+  return payload;
+}
+
 app.post('/report/render', requireSecret, async (req, res) => {
   const reportId = randomUUID();
   const inputPath = path.join(GENERATED_REPORT_DIR, `${reportId}.json`);
@@ -1746,6 +1791,8 @@ app.post('/report/render', requireSecret, async (req, res) => {
         });
       }
     }
+
+    normalizeReportPayloadSigns(payload);
 
     delete payload.placements_json;
 
