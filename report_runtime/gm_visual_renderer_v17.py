@@ -29,10 +29,19 @@ OPENING_ELEMENT_DIR = ASSET / "elements_opening"
 REFERENCE_DIR = HERE / "reference"
 OPENING_ELEMENT_REFERENCE = REFERENCE_DIR / "4_element_opening.png"
 REPORT_ELEMENT_REFERENCE = REFERENCE_DIR / "4_element_report.png"
+PAGE1_REFERENCE = REFERENCE_DIR / "Page_1_CANONICAL.png"
+PAGE2_REFERENCE = REFERENCE_DIR / "Page_2_CANONICAL.png"
+PAGE3_REFERENCE = REFERENCE_DIR / "Page_3_CANONICAL.png"
 
 SIGNS = ["Koç","Boğa","İkizler","Yengeç","Aslan","Başak","Terazi","Akrep","Yay","Oğlak","Kova","Balık"]
 SIGN_GLYPHS = {"Koç":"♈","Boğa":"♉","İkizler":"♊","Yengeç":"♋","Aslan":"♌","Başak":"♍","Terazi":"♎","Akrep":"♏","Yay":"♐","Oğlak":"♑","Kova":"♒","Balık":"♓"}
 BODY_GLYPHS = {"Güneş":"☉","Ay":"☽","Merkür":"☿","Venüs":"♀","Mars":"♂","Jüpiter":"♃","Satürn":"♄","Uranüs":"♅","Neptün":"♆","Plüton":"♇","Kuzey Ay Düğümü":"☊","ASC Yükselen":"ASC","Yükselen":"ASC","MC":"MC"}
+BODY_TR_MAP = {
+    "Sun":"Güneş","Moon":"Ay","Mercury":"Merkür","Venus":"Venüs","Mars":"Mars",
+    "Jupiter":"Jüpiter","Saturn":"Satürn","Uranus":"Uranüs","Neptune":"Neptün",
+    "Pluto":"Plüton","True Node":"Kuzey Ay Düğümü","North Node":"Kuzey Ay Düğümü",
+    "Ascendant":"ASC Yükselen","ASC":"ASC Yükselen","MC":"MC",
+}
 ELEMENT_KEYS = ["Ateş","Toprak","Hava","Su"]
 ELEMENT_FILES = {"Ateş":"ates.png","Toprak":"toprak.png","Hava":"hava.png","Su":"su.png"}
 ELEMENT_API_KEYS = {"Ateş":"fire","Toprak":"earth","Hava":"air","Su":"water"}
@@ -136,7 +145,28 @@ def _element_payload(data: dict[str,Any]) -> tuple[dict[str,float], dict[str,flo
     return vals,scales
 
 
+def _normalize_render_labels(data: dict[str,Any]) -> None:
+    """Normalize API English body labels to the renderer's canonical Turkish labels.
+
+    This is a presentation adapter only; longitudes/degrees/houses are untouched.
+    """
+    placements=data.get("placements")
+    if isinstance(placements,list):
+        for p in placements:
+            if isinstance(p,dict) and isinstance(p.get("body"),str):
+                p["body"]=BODY_TR_MAP.get(p["body"],p["body"])
+    aspects=data.get("aspects")
+    if isinstance(aspects,list):
+        for a in aspects:
+            if not isinstance(a,dict):
+                continue
+            for key in ("a","b"):
+                if isinstance(a.get(key),str):
+                    a[key]=BODY_TR_MAP.get(a[key],a[key])
+
+
 def validate(data: dict[str,Any], for_pdf: bool=True) -> None:
+    _normalize_render_labels(data)
     profile=_need(data,"profile")
     for k in ["birth_date","birth_time","birth_place","report_date"]: _need(profile,k)
     sun=_need(data,"sun_sign"); asc=_need(data,"asc_sign")
@@ -153,6 +183,9 @@ def validate(data: dict[str,Any], for_pdf: bool=True) -> None:
         if not isinstance(cusps,list) or len(cusps)!=12: raise ValueError("house_cusps must be 12 verified longitudes")
         for x in cusps:
             if not (0<=float(x)<360): raise ValueError("house_cusps longitude out of range")
+        for ref in (PAGE1_REFERENCE, PAGE2_REFERENCE, PAGE3_REFERENCE, REPORT_ELEMENT_REFERENCE):
+            if not ref.exists():
+                raise ValueError(f"missing canonical report reference: {ref.name}")
     vals,_scales=_element_payload(data)
     if any(v<0 for v in vals.values()): raise ValueError("negative element percentage")
     if not (99.9 <= sum(vals.values()) <= 100.1): raise ValueError("element percentages must sum to 100")
@@ -333,72 +366,74 @@ def render_elements_opening(data: dict[str,Any], out_path: str) -> None:
     im.convert("RGB").save(out_path,quality=96)
 
 def render_elements_report(data: dict[str,Any], out_path: str) -> None:
-    """PDF page-3 visual locked to 4_element_report.png composition family."""
+    """PDF page 3: approved 4_element_report.png visual base + verified live data.
+
+    Example percentages and example medallion sizes embedded in the reference
+    are never treated as user data. Only those dynamic pixels are replaced.
+    """
     validate(data, for_pdf=False)
     vals,scales=_element_payload(data)
-    W,H=_reference_size(REPORT_ELEMENT_REFERENCE,(1085,1450))
-    bg=(3,10,12,255); gold=(217,165,45,255); pale=(246,215,145,255)
-    im=Image.new("RGBA",(W,H),bg)
-    prof=data.get("profile",{})
-    seed=f"{prof.get('name','')}|{prof.get('birth_date','')}|elements|report"
-    d=_draw_cosmic_background(im,seed,star_count=1200)
-    _draw_frame(d,W,H)
+    if not REPORT_ELEMENT_REFERENCE.exists():
+        raise ValueError(f"missing canonical 4 Element reference: {REPORT_ELEMENT_REFERENCE.name}")
 
-    fsmall=_font_pil(27,True); ftitle=_font_pil(52,False); fsub=_font_pil(27,False)
-    top="GRANDMASTROLOG ELEMENT ANALİZİ"
-    bb=d.textbbox((0,0),top,font=fsmall); d.text(((W-(bb[2]-bb[0]))/2,58),top,font=fsmall,fill=gold)
-    title="4 ELEMENT DAĞILIMI"; bb=d.textbbox((0,0),title,font=ftitle)
-    d.text(((W-(bb[2]-bb[0]))/2,112),title,font=ftitle,fill=pale)
-    sub="Doğum haritandaki element dengesinin görselleştirilmiş özeti"; bb=d.textbbox((0,0),sub,font=fsub)
-    d.text(((W-(bb[2]-bb[0]))/2,186),sub,font=fsub,fill=(235,204,133,240))
-    d.line((250,235,W-250,235),fill=(217,165,45,170),width=2)
+    im=Image.open(REPORT_ELEMENT_REFERENCE).convert("RGBA")
+    W,H=im.size
+    d=ImageDraw.Draw(im,"RGBA")
+    cx,cy=W/2,760
+    bg=(3,10,12,255)
+    gold=(217,165,45,255)
+    pale=(246,215,145,255)
 
-    cx,cy=W/2,760; R=410
-    for rradius,alpha,wid in [(R,220,2),(R-18,150,1),(R-75,120,1),(R-160,105,1)]:
-        d.ellipse((cx-rradius,cy-rradius,cx+rradius,cy+rradius),outline=(217,165,45,alpha),width=wid)
-    symfont=_font_symbol_pil(30)
-    for i,s in enumerate(SIGNS):
-        a=math.radians(-90+i*30)
-        x1=cx+(R-18)*math.cos(a); y1=cy+(R-18)*math.sin(a)
-        x2=cx+R*math.cos(a); y2=cy+R*math.sin(a)
-        d.line((x1,y1,x2,y2),fill=(217,165,45,130),width=1)
-        a2=math.radians(-75+i*30); tx=cx+(R-43)*math.cos(a2); ty=cy+(R-43)*math.sin(a2)
-        g=SIGN_GLYPHS[s]; bb=d.textbbox((0,0),g,font=symfont)
-        d.text((tx-(bb[2]-bb[0])/2,ty-(bb[3]-bb[1])/2),g,font=symfont,fill=(226,177,54,225))
-
+    # Remove baked example medallions; live canonical element art is placed next.
     pos={"Ateş":(cx,455),"Toprak":(205,790),"Hava":(W-205,790),"Su":(cx,1085)}
+    clear_r={"Ateş":174,"Toprak":179,"Hava":179,"Su":162}
+    for k,(x,y) in pos.items():
+        rr=clear_r[k]
+        d.ellipse((x-rr,y-rr,x+rr,y+rr),fill=bg)
+
+    # Restore the main wheel lines across sanitized medallion zones.
+    for rradius,alpha,wid in [(410,205,2),(392,125,1),(335,95,1)]:
+        d.ellipse((cx-rradius,cy-rradius,cx+rradius,cy+rradius),
+                  outline=(217,165,45,alpha),width=wid)
+
+    # Live medallions from the packaged canonical element artwork.
     base={"Ateş":286,"Toprak":282,"Hava":282,"Su":260}
     for k in ELEMENT_KEYS:
         target=int(base[k]*scales[k])
         _paste_element_art(im,k,pos[k],target,silver_air=True)
 
-    label_colors={"Ateş":(255,132,18,255),"Toprak":(197,221,28,255),"Hava":(205,226,238,255),"Su":(150,216,255,255)}
-    label_pos={"Ateş":(cx,210),"Toprak":(128,610),"Hava":(W-128,610),"Su":(cx,1222)}
+    # Replace the example outer labels/percentages after medallion sanitization.
+    outer_boxes={
+        "Ateş":(405,205,680,315),
+        "Toprak":(28,575,285,700),
+        "Hava":(800,575,1057,700),
+        "Su":(405,1190,680,1315),
+    }
+    for box in outer_boxes.values():
+        d.rounded_rectangle(box,radius=9,fill=(3,10,12,246),outline=(217,165,45,150),width=2)
+
+    label_colors={"Ateş":(255,132,18,255),"Toprak":(197,221,28,255),
+                  "Hava":(205,226,238,255),"Su":(150,216,255,255)}
+    outer_pos={"Ateş":(cx,220),"Toprak":(151,600),"Hava":(W-151,600),"Su":(cx,1210)}
     f_lab=_font_pil(31,True); f_pct=_font_pil(40,False)
-    for k in ELEMENT_KEYS:
-        x,y=label_pos[k]
-        for j,t in enumerate((k.upper(),f"%{vals[k]:g}")):
-            f=f_lab if j==0 else f_pct; bb=d.textbbox((0,0),t,font=f)
-            d.text((x-(bb[2]-bb[0])/2,y+j*38),t,font=f,fill=label_colors[k])
+    for k,(x,y) in outer_pos.items():
+        name=k.upper(); pct=f"%{vals[k]:g}"
+        bb=d.textbbox((0,0),name,font=f_lab)
+        d.text((x-(bb[2]-bb[0])/2,y),name,font=f_lab,fill=label_colors[k])
+        bb=d.textbbox((0,0),pct,font=f_pct)
+        d.text((x-(bb[2]-bb[0])/2,y+40),pct,font=f_pct,fill=label_colors[k])
 
-    cr=178
-    d.ellipse((cx-cr,cy-cr,cx+cr,cy+cr),fill=(2,11,13,244),outline=gold,width=3)
-    d.ellipse((cx-cr+10,cy-cr+10,cx+cr-10,cy+cr-10),outline=(238,199,98,125),width=1)
-    ft=_font_pil(25,True); t="4 ELEMENT DAĞILIMI"; bb=d.textbbox((0,0),t,font=ft)
-    d.text((cx-(bb[2]-bb[0])/2,cy-cr+42),t,font=ft,fill=pale)
-    d.line((cx-112,cy-cr+80,cx+112,cy-cr+80),fill=(217,165,45,125),width=1)
-    fy=cy-cr+105; fr=_font_pil(26,False); fp=_font_pil(27,True)
-    for k in ELEMENT_KEYS:
-        d.text((cx-118,fy),k.upper(),font=fr,fill=label_colors[k])
-        pct=f"%{vals[k]:g}"; bb=d.textbbox((0,0),pct,font=fp)
-        d.text((cx+116-(bb[2]-bb[0]),fy),pct,font=fp,fill=pale)
-        fy+=50
+    # Center title/names/icons stay from the approved reference. Replace only
+    # the example percentage column.
+    center_pct_zone=(575,676,738,902)
+    d.rounded_rectangle(center_pct_zone,radius=10,fill=(2,11,13,250))
+    center_rows={"Ateş":700,"Toprak":752,"Hava":804,"Su":856}
+    fp=_font_pil(27,True)
+    for k,y in center_rows.items():
+        pct=f"%{vals[k]:g}"
+        bb=d.textbbox((0,0),pct,font=fp)
+        d.text((700-(bb[2]-bb[0]),y),pct,font=fp,fill=pale)
 
-    bx1,bx2=120,W-120; by1,by2=1310,1391
-    d.rounded_rectangle((bx1,by1,bx2,by2),radius=16,fill=(3,12,14,230),outline=gold,width=2)
-    footer="Elementlerin oranı, doğum haritandaki doğal enerjilerin nasıl dağıldığını gösterir."
-    ff=_font_pil(22,False); bb=d.textbbox((0,0),footer,font=ff)
-    d.text(((W-(bb[2]-bb[0]))/2,by1+27),footer,font=ff,fill=(235,207,151,255))
     im.convert("RGB").save(out_path,quality=96)
 
 
@@ -472,46 +507,192 @@ def _zodiac_img(sign):
     return _ZODIAC_RENDER_CACHE[sign]
 
 
+
+def _draw_reference_page(c: canvas.Canvas, reference: Path, w: float, h: float) -> None:
+    """Draw the approved canonical reference as the visual base.
+
+    The reference may contain example/sample personal data. Variable zones are
+    explicitly sanitized by the page renderer before live ASTRO DATA is drawn.
+    """
+    if not reference.exists():
+        raise ValueError(f"missing canonical report reference: {reference.name}")
+    c.drawImage(ImageReader(str(reference)), 0, 0, w, h, mask='auto')
+
+
+def _ref_box(c: canvas.Canvas, ref_size: tuple[int,int], w: float, h: float,
+             x1: float, y1: float, x2: float, y2: float,
+             fill=Color(.008,.016,.018,alpha=.97), radius: float=0) -> None:
+    """Mask a sample-data zone expressed in top-left reference pixels."""
+    rw,rh=ref_size
+    px=x1/rw*w
+    py=h-(y2/rh*h)
+    pw=(x2-x1)/rw*w
+    ph=(y2-y1)/rh*h
+    c.saveState()
+    try:
+        c.setFillAlpha(fill.alpha if getattr(fill,"alpha",None) is not None else 1)
+    except Exception:
+        pass
+    c.setFillColor(fill)
+    if radius:
+        c.roundRect(px,py,pw,ph,radius,fill=1,stroke=0)
+    else:
+        c.rect(px,py,pw,ph,fill=1,stroke=0)
+    c.restoreState()
+
+
+def _ref_xy(ref_size: tuple[int,int], w: float, h: float, x: float, y: float) -> tuple[float,float]:
+    rw,rh=ref_size
+    return x/rw*w, h-y/rh*h
+
+
+def _human_date_tr(value: Any) -> str:
+    s=str(value or "").strip()
+    months=["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran",
+            "Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"]
+    for sep in (".","-","/"):
+        parts=s.split(sep)
+        if len(parts)==3 and all(p.strip().isdigit() for p in parts):
+            a,b,c=[int(p) for p in parts]
+            if len(parts[0])==4:  # YYYY-MM-DD
+                year,month,day=a,b,c
+            else:
+                day,month,year=a,b,c
+            if 1<=month<=12:
+                return f"{day} {months[month-1]} {year}"
+    return s
+
+
+
+def _stars_region(c: canvas.Canvas, seed: str, x: float, y: float, width: float, height: float, n: int=140) -> None:
+    """Add restrained canonical-like star texture only inside a sanitized live-data zone."""
+    rr=random.Random(int(hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16],16))
+    c.saveState()
+    for _ in range(n):
+        sx=x+rr.random()*width
+        sy=y+rr.random()*height
+        rad=rr.choice([.25,.35,.45,.6,.8])
+        col=Color(1,.80+rr.random()*.15,.38+rr.random()*.25,alpha=.20+rr.random()*.35)
+        c.setFillColor(col)
+        c.circle(sx,sy,rad,fill=1,stroke=0)
+    c.restoreState()
+
+
+def _draw_premium_zodiac_medallion(c: canvas.Canvas, sign: str, x: float, y: float,
+                                   radius: float, accent: str="gold") -> None:
+    """Premium report treatment around the exact packaged zodiac asset.
+
+    No zodiac art is invented here: the packaged asset remains the subject.
+    Glow/rings only reproduce the canonical report's medallion treatment.
+    """
+    if accent=="blue":
+        glow=[HexColor("#113f63"),HexColor("#176aa7"),HexColor("#55c8ff")]
+        core=HexColor("#79d9ff")
+    else:
+        glow=[HexColor("#5c3205"),HexColor("#b8650b"),HexColor("#ffc04c")]
+        core=HexColor("#ffd87b")
+
+    c.saveState()
+    # layered halo
+    for rr,col,alpha,lw in [
+        (radius*1.22,glow[0],.20,8),
+        (radius*1.13,glow[1],.34,5),
+        (radius*1.05,glow[2],.62,2.4),
+        (radius*.98,core,.90,1.2),
+    ]:
+        try:
+            c.setStrokeAlpha(alpha)
+        except Exception:
+            pass
+        c.setStrokeColor(col)
+        c.setLineWidth(lw)
+        c.circle(x,y,rr,fill=0,stroke=1)
+    try:
+        c.setStrokeAlpha(1)
+    except Exception:
+        pass
+    c.setFillColor(Color(.003,.008,.01,alpha=.90))
+    c.circle(x,y,radius*.94,fill=1,stroke=0)
+    sz=radius*1.78
+    c.drawImage(_zodiac_img(sign),x-sz/2,y-sz/2,sz,sz,mask='auto')
+    c.restoreState()
+
 def _page1(c,data,w,h):
-    prof=data["profile"]; seed=f"{prof.get('name','')}{prof['birth_date']}p1"
-    _stars(c,seed,w,h,520); _ornate_border(c,w,h)
-    c.setFillColor(GOLD); c.setFont("GMSerifBold",11); c.drawCentredString(w/2,h-34,"ŞAHSİ GRANDMASTROLOG  |  DOĞUM HARİTASI RAPORU")
-    c.setFont("GMSerifBold",27); c.drawString(34,h-92,"ŞAHSİ")
-    c.setFont("GMSerifBold",40); c.drawString(34,h-130,"GRANDMASTROLOG")
-    c.setFont("GMSerifItalic",24); c.drawString(34,h-165,"Doğum Haritası Raporu")
-    # data card
-    x=34; y=h-205; bw=w*.47; rh=33
-    c.setStrokeColor(GOLD); c.setLineWidth(.7); c.roundRect(x,y-rh*4,bw,rh*4,7,stroke=1,fill=0)
-    rows=[("Doğum tarihi",prof["birth_date"]),("Doğum saati",prof["birth_time"]),("Doğum yeri",prof["birth_place"]),("Rapor tarihi",prof["report_date"])]
-    c.setFont("GMSerif",12)
-    for i,(k,v) in enumerate(rows):
-        yy=y-rh*i-21; c.setFillColor(INK); c.drawString(x+12,yy,k); c.setFillColor(PALE_GOLD); c.drawString(x+bw*.53,yy,str(v))
-        if i<3: c.setStrokeColor(Color(.85,.65,.2,alpha=.45)); c.line(x,y-rh*(i+1),x+bw,y-rh*(i+1))
-    # text boxes
-    boxy=y-rh*4-40; boxh=164
-    c.setStrokeColor(GOLD); c.roundRect(34,boxy-boxh,bw,boxh,7,stroke=1,fill=0)
-    c.setFillColor(GOLD); c.setFont("GMSerifBold",17); c.drawCentredString(34+bw/2,boxy-24,"SENİN YOLUN")
+    """Page 1: canonical reference locked as visual base; only personal zones are dynamic."""
+    prof=data["profile"]
+    ref_size=(1024,1535)
+    _draw_reference_page(c,PAGE1_REFERENCE,w,h)
+
+    # The reference contains example personal data. Hide ONLY those fields.
+    # Borders, cosmic texture, ornaments and approved composition stay untouched.
+    for box in [
+        (292,326,520,603),     # data values column
+        (62,833,505,1099),     # Senin Yolun body
+        (62,1191,505,1394),    # Sinerji body
+        (188,1450,846,1493),   # motto/footer text
+    ]:
+        _ref_box(c,ref_size,w,h,*box,fill=Color(.008,.014,.016,alpha=1.0),radius=2)
+
+    # Reference art is Mustafa's approved Aslan/Balık pair. For other pairs,
+    # sanitize the example medallions and rebuild them from packaged zodiac assets.
+    approved_pair=(data["asc_sign"]=="Aslan" and data["sun_sign"]=="Balık")
+    if not approved_pair:
+        for box in [
+            (650,430,1010,910),   # ASC label + medallion
+            (635,930,1010,1385),  # Sun label + medallion
+        ]:
+            _ref_box(c,ref_size,w,h,*box,fill=Color(.004,.012,.014,alpha=1.0),radius=6)
+
+    # Birth data — same coordinates and typographic hierarchy as reference.
+    values=[
+        _human_date_tr(prof["birth_date"]),
+        str(prof["birth_time"]),
+        str(prof["birth_place"]),
+        _human_date_tr(prof["report_date"]),
+    ]
+    value_x,value_ys=310,[361,431,501,568]
+    for value,yy in zip(values,value_ys):
+        x,y=_ref_xy(ref_size,w,h,value_x,yy)
+        c.setFillColor(PALE_GOLD); c.setFont("GMSerif",13.3)
+        c.drawString(x,y,value)
+
+    # Senin Yolun
     st=data.get("senin_yolun","")
     if isinstance(st,list): st=" ".join(st)
-    _fit_text(c,st,46,boxy-52,bw-24,size=12,leading=17,max_lines=6)
-    syy=boxy-boxh-26; syh=155
-    c.setStrokeColor(GOLD); c.roundRect(34,syy-syh,bw,syh,7,stroke=1,fill=0)
-    title=f"{data['sun_sign'].upper()} + {data['asc_sign'].upper()} SİNERJİSİ"
-    c.setFillColor(GOLD); c.setFont("GMSerifBold",15); c.drawCentredString(34+bw/2,syy-24,title)
+    x,y=_ref_xy(ref_size,w,h,65,858)
+    _fit_text(c,st,x,y,415/ref_size[0]*w,font="GMSerif",size=13.0,leading=18.0,max_lines=10,color=INK)
+
+    # Güneş + Yükselen sinerjisi
     syn=data.get("synergy_text","")
     if isinstance(syn,list): syn=" ".join(syn)
-    _fit_text(c,syn,46,syy-50,bw-24,font="GMSerifItalic",size=12,leading=18,max_lines=5)
-    # right medallions
-    rx=w*.68; imsz=132
-    for label,sign,cyy in [("YÜKSELEN",data["asc_sign"],h*.59),("GÜNEŞ",data["sun_sign"],h*.29)]:
-        c.setStrokeColor(GOLD); c.setLineWidth(1.0); c.circle(rx,cyy,imsz*.53,stroke=1,fill=0)
-        c.drawImage(_zodiac_img(sign),rx-imsz/2,cyy-imsz/2,imsz,imsz,mask='auto')
-        c.setFillColor(GOLD); c.setFont("GMSerifBold",13); c.drawCentredString(rx,cyy+imsz*.65,label)
-        c.setFont("GMSerifBold",26); c.drawCentredString(rx,cyy+imsz*.48,sign.upper())
-    motto=data.get("motto","")
+    x,y=_ref_xy(ref_size,w,h,65,1217)
+    _fit_text(c,syn,x,y,415/ref_size[0]*w,font="GMSerifItalic",size=12.6,leading=18.5,max_lines=8,color=INK)
+
+    if not approved_pair:
+        # Dynamic premium medallions for any other sign pair.
+        ax,ay=_ref_xy(ref_size,w,h,790,695)
+        sx,sy=_ref_xy(ref_size,w,h,785,1163)
+        ar=124/ref_size[0]*w
+        sr=124/ref_size[0]*w
+        _draw_premium_zodiac_medallion(c,data["asc_sign"],ax,ay,ar,"gold")
+        _draw_premium_zodiac_medallion(c,data["sun_sign"],sx,sy,sr,"blue")
+
+        # Labels
+        for label,sign,xx,yy in [
+            ("YÜKSELEN",data["asc_sign"],790,466),
+            ("GÜNEŞ",data["sun_sign"],785,952),
+        ]:
+            x,y=_ref_xy(ref_size,w,h,xx,yy)
+            c.setFillColor(GOLD); c.setFont("GMSerifBold",15)
+            c.drawCentredString(x,y,label)
+            c.setFont("GMSerifBold",30)
+            c.drawCentredString(x,y-29,sign.upper())
+
+    motto=str(data.get("motto","") or "")
     if motto:
-        c.setStrokeColor(Color(.85,.65,.2,alpha=.55)); c.line(34,40,w-34,40)
-        c.setFillColor(PALE_GOLD); c.setFont("GMSerifBold",10.5); c.drawCentredString(w/2,25,motto)
+        x,y=_ref_xy(ref_size,w,h,512,1478)
+        c.setFillColor(PALE_GOLD); c.setFont("GMSerifBold",10.4)
+        c.drawCentredString(x,y,motto)
 
 
 def _polar(lon,cx,cy,r):
@@ -548,30 +729,65 @@ def _draw_wheel(c,data,cx,cy,R):
 
 
 def _badge(c,p,x,y,sz=54,label_side="right"):
-    sign=p["sign"]; c.setStrokeColor(GOLD); c.circle(x,y,sz*.52,stroke=1,fill=0)
+    sign=p["sign"]
+    c.saveState()
+    for rr,alpha,lw,col in [
+        (sz*.62,.18,5,HexColor("#8f5e16")),
+        (sz*.56,.45,2.2,GOLD),
+        (sz*.52,.90,.8,PALE_GOLD),
+    ]:
+        try: c.setStrokeAlpha(alpha)
+        except Exception: pass
+        c.setStrokeColor(col); c.setLineWidth(lw); c.circle(x,y,rr,stroke=1,fill=0)
+    try: c.setStrokeAlpha(1)
+    except Exception: pass
+    c.setFillColor(DARK); c.circle(x,y,sz*.48,fill=1,stroke=0)
     c.drawImage(_zodiac_img(sign),x-sz/2,y-sz/2,sz,sz,mask='auto')
+    c.restoreState()
+
     body=p["body"].replace("ASC Yükselen","YÜKSELEN").upper()
     txt=str(p.get("degree",""))
     if p.get("house") not in (None,""): txt+=f"  {p['house']}. Ev"
     c.setFillColor(INK)
     if label_side=="left":
-        lx=x-sz*.62
+        lx=x-sz*.66
         c.setFont("GMSerifBold",8.5); c.drawRightString(lx,y+12,body)
         c.setFont("GMSerif",8); c.drawRightString(lx,y-1,sign.upper()); c.drawRightString(lx,y-14,txt)
     else:
-        lx=x+sz*.62
+        lx=x+sz*.66
         c.setFont("GMSerifBold",8.5); c.drawString(lx,y+12,body)
         c.setFont("GMSerif",8); c.drawString(lx,y-1,sign.upper()); c.drawString(lx,y-14,txt)
 
 
 def _page2(c,data,w,h):
-    prof=data["profile"]; _stars(c,f"{prof.get('name','')}{prof['birth_date']}p2",w,h,650); _ornate_border(c,w,h)
-    c.setFillColor(GOLD); c.setFont("GMSerifBold",11); c.drawCentredString(w/2,h-30,"ŞAHSİ GRANDMASTROLOG  |  DANIŞMANLIK RAPORU")
-    c.setFont("GMSerifBold",29); c.drawString(34,h-78,"DOĞUM HARİTASI GÖRSELİ")
-    c.setFont("GMSerifItalic",11); c.drawString(36,h-100,"Gezegenlerin burç yerleşimlerinin görselleştirilmiş sistemi")
+    """Page 2: canonical style background with all sample-data zones sanitized."""
+    prof=data["profile"]
+    ref_size=(1055,1491)
+    _draw_reference_page(c,PAGE2_REFERENCE,w,h)
+
+    # Hide the reference's example chart/tables while preserving frame, title,
+    # outer galaxy texture and decorative composition.
+    _ref_box(c,ref_size,w,h,22,205,702,1375,fill=Color(.003,.012,.014,alpha=1.0),radius=5)
+    _ref_box(c,ref_size,w,h,704,210,1030,1332,fill=Color(.003,.012,.014,alpha=1.0),radius=5)
+
+    # Return subtle texture to the sanitized zones without reintroducing sample data.
+    _stars_region(c,f"{prof.get('name','')}|{prof['birth_date']}|p2-left",14,90,w*.64,h*.68,190)
+    _stars_region(c,f"{prof.get('name','')}|{prof['birth_date']}|p2-right",w*.675,95,w*.30,h*.69,90)
+
     cx=w*.34; cy=h*.50; R=w*.25
+
+    # Decorative wheel halo closer to the canonical reference.
+    c.saveState()
+    for rr,alpha,lw in [(R*1.10,.14,9),(R*1.04,.30,4),(R,.90,1.0)]:
+        try: c.setStrokeAlpha(alpha)
+        except Exception: pass
+        c.setStrokeColor(GOLD); c.setLineWidth(lw); c.circle(cx,cy,rr,stroke=1,fill=0)
+    try: c.setStrokeAlpha(1)
+    except Exception: pass
+    c.restoreState()
     _draw_wheel(c,data,cx,cy,R)
-    # dynamic badges around wheel
+
+    # Dynamic badges around the wheel.
     priority=["Güneş","MC","Merkür","Venüs","Mars","Satürn","Plüton","Jüpiter","Ay","ASC Yükselen","Yükselen"]
     selected=[]
     for k in priority:
@@ -582,11 +798,12 @@ def _page2(c,data,w,h):
     for p,(x,y) in zip(selected,slots):
         side="left" if x>w*.48 else "right"
         _badge(c,p,x,y,50,label_side=side)
-    # right tables
+
+    # Right-side live tables.
     tx=w*.68; tw=w*.29; top=h*.76
-    c.setStrokeColor(GOLD); c.roundRect(tx,top-230,tw,230,6,stroke=1,fill=0)
+    c.setFillColor(Color(.003,.012,.014,alpha=.82))
+    c.setStrokeColor(GOLD); c.setLineWidth(.8); c.roundRect(tx,top-230,tw,230,6,stroke=1,fill=1)
     c.setFillColor(GOLD); c.setFont("GMSerifBold",12); c.drawCentredString(tx+tw/2,top-18,"NATAL YERLEŞİMLER")
-    # Fixed column ownership: prevent long Turkish labels/degrees from colliding.
     col_body=tx+8; col_sign=tx+tw*.43; col_deg=tx+tw*.69; col_house=tx+tw*.92
     c.setFont("GMSerifBold",6.7); c.drawString(col_body,top-38,"GÖSTERGE"); c.drawString(col_sign,top-38,"BURÇ"); c.drawString(col_deg,top-38,"DERECE"); c.drawString(col_house,top-38,"EV")
     rows=data["placements"][:10]
@@ -597,17 +814,22 @@ def _page2(c,data,w,h):
         deg=str(p["degree"])[:9]
         c.drawString(col_body,yy,body); c.drawString(col_sign,yy,p["sign"]); c.drawString(col_deg,yy,deg); c.drawString(col_house,yy,str(p.get("house","")))
         yy-=16
+
     at=top-255; ah=210
-    c.setStrokeColor(GOLD); c.roundRect(tx,at-ah,tw,ah,6,stroke=1,fill=0); c.setFillColor(GOLD); c.setFont("GMSerifBold",12); c.drawCentredString(tx+tw/2,at-18,"ANA AÇI DESENLERİ")
+    c.setFillColor(Color(.003,.012,.014,alpha=.82))
+    c.setStrokeColor(GOLD); c.roundRect(tx,at-ah,tw,ah,6,stroke=1,fill=1)
+    c.setFillColor(GOLD); c.setFont("GMSerifBold",12); c.drawCentredString(tx+tw/2,at-18,"ANA AÇI DESENLERİ")
     c.setFont("GMSerifBold",7.2); c.drawString(tx+8,at-38,"AÇI"); c.drawString(tx+tw*.34,at-38,"GÖSTERGELER"); c.drawString(tx+tw*.84,at-38,"ORB")
     aspects=sorted(data.get("aspects",[]),key=lambda a:(-(a.get("strength") or 0),float(a.get("orb",99))))[:7]
     yy=at-55; c.setFont("GMSerif",7.6); c.setFillColor(INK)
     for a in aspects:
         c.drawString(tx+8,yy,str(a.get("type",""))[:12]); c.drawString(tx+tw*.34,yy,f"{a.get('a','')} - {a.get('b','')}"[:28]); c.drawString(tx+tw*.85,yy,f"{a.get('orb','')}°")
         yy-=18
-    # strength panel only if supplied
+
     st=at-ah-24; sh=88
-    c.setStrokeColor(GOLD); c.roundRect(tx,st-sh,tw,sh,6,stroke=1,fill=0); c.setFillColor(GOLD); c.setFont("GMSerifBold",11); c.drawCentredString(tx+tw/2,st-18,"AÇI GÜÇLERİ")
+    c.setFillColor(Color(.003,.012,.014,alpha=.82))
+    c.setStrokeColor(GOLD); c.roundRect(tx,st-sh,tw,sh,6,stroke=1,fill=1)
+    c.setFillColor(GOLD); c.setFont("GMSerifBold",11); c.drawCentredString(tx+tw/2,st-18,"AÇI GÜÇLERİ")
     strengths=[float(a["strength"]) for a in data.get("aspects",[]) if a.get("strength") is not None]
     if strengths:
         avg=sum(strengths)/len(strengths); x0=tx+12; y0=st-52; barw=tw-24
