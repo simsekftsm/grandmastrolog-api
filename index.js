@@ -47,8 +47,14 @@ function requireSecret(req, res, next) {
     return res.status(500).json({ ok: false, error: 'GM_API_SECRET is not configured.' });
   }
 
-  if (req.header('x-gm-secret') !== GM_API_SECRET) {
-    return res.status(401).json({ ok: false, error: 'Unauthorized: invalid x-gm-secret.' });
+  const customSecret = req.header('x-gm-secret');
+  const authorization = req.header('authorization') || '';
+  const bearerSecret = authorization.toLowerCase().startsWith('bearer ')
+    ? authorization.slice(7).trim()
+    : '';
+
+  if (customSecret !== GM_API_SECRET && bearerSecret !== GM_API_SECRET) {
+    return res.status(401).json({ ok: false, error: 'Unauthorized: invalid API secret.' });
   }
 
   next();
