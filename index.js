@@ -6,6 +6,11 @@ import pg from 'pg';
 import Groq from 'groq-sdk';
 import { createRequire } from 'module';
 import { DateTime } from 'luxon';
+import { spawn } from 'child_process';
+import { randomUUID } from 'crypto';
+import fs from 'fs';
+import fsp from 'fs/promises';
+import path from 'path';
 
 const require = createRequire(import.meta.url);
 const swisseph = require('swisseph');
@@ -16,7 +21,12 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const GM_API_SECRET = process.env.GM_API_SECRET || '';
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+const REPORT_RUNTIME_DIR = path.join(process.cwd(), 'report_runtime');
+const REPORT_RENDERER = path.join(REPORT_RUNTIME_DIR, 'gm_visual_renderer_v17.py');
+const GENERATED_REPORT_DIR = path.join(process.cwd(), 'generated_reports');
+const REPORT_TTL_MS = 24 * 60 * 60 * 1000;
 
+app.set('trust proxy', 1);
 app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -1626,6 +1636,157 @@ app.post('/memory/upsert-active-context', requireSecret, async (req, res) => {
     });
   }
 });
+
+
+/* CANONICAL 3-PAGE PDF REPORT API */
+
+function reportBaseUrl(req) {
+  const configured = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+  if (configured) return configured;
+  return `${req.protocol}://${req.get('host')}`;
+}
+
+function runProcess(command, args, { timeoutMs = 60000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill('SIGKILL');
+      reject(new Error(`Renderer timed out after ${timeoutMs} ms.`));
+    }, timeoutMs);
+
+    child.stdout.on('data', chunk => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr.on('data', chunk => {
+      stderr += chunk.toString();
+    });
+
+    child.on('error', err => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
+
+    child.on('close', code => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+
+      if (code === 0) {
+        resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+      } else {
+        reject(new Error(
+          `Renderer exited with code ${code}. ${stderr || stdout || 'No renderer detail.'}`
+        ));
+      }
+    });
+  });
+}
+
+async function ensureReportRuntime() {
+  await fsp.mkdir(GENERATED_REPORT_DIR, { recursive: true });
+  await fsp.access(REPORT_RENDERER);
+}
+
+function safeReportId(value) {
+  const id = String(value || '').trim();
+  return /^[0-9a-fA-F-]{36}$/.test(id) ? id : null;
+}
+
+async function cleanupReportFiles(id, inputPath, outputPath) {
+  setTimeout(async () => {
+    await Promise.allSettled([
+      fsp.unlink(inputPath),
+      fsp.unlink(outputPath)
+    ]);
+  }, REPORT_TTL_MS).unref?.();
+}
+
+app.post('/report/render', requireSecret, async (req, res) => {
+  const reportId = randomUUID();
+  const inputPath = path.join(GENERATED_REPORT_DIR, `${reportId}.json`);
+  const outputPath = path.join(GENERATED_REPORT_DIR, `${reportId}.pdf`);
+
+  try {
+    await ensureReportRuntime();
+
+    const payload = req.body || {};
+    await fsp.writeFile(inputPath, JSON.stringify(payload), 'utf8');
+
+    await runProcess(
+      process.env.PYTHON_BIN || 'python3',
+      [REPORT_RENDERER, 'pdf', inputPath, outputPath],
+      { timeoutMs: Number(process.env.REPORT_RENDER_TIMEOUT_MS || 60000) }
+    );
+
+    const stat = await fsp.stat(outputPath);
+    if (!stat.isFile() || stat.size < 1000) {
+      throw new Error('Renderer did not create a valid PDF file.');
+    }
+
+    cleanupReportFiles(reportId, inputPath, outputPath);
+
+    const baseUrl = reportBaseUrl(req);
+    return res.json({
+      ok: true,
+      renderer: 'gm_visual_renderer_v17',
+      pages: 3,
+      report_id: reportId,
+      filename: `GrandMastrolog_${reportId}.pdf`,
+      size_bytes: stat.size,
+      expires_in_seconds: Math.floor(REPORT_TTL_MS / 1000),
+      url: `${baseUrl}/reports/${reportId}.pdf`
+    });
+  } catch (err) {
+    console.error('report render error:', err);
+    await Promise.allSettled([
+      fsp.unlink(inputPath),
+      fsp.unlink(outputPath)
+    ]);
+
+    return res.status(500).json({
+      ok: false,
+      error: 'Canonical PDF rendering failed.',
+      detail: err.message
+    });
+  }
+});
+
+app.get('/reports/:id.pdf', async (req, res) => {
+  const reportId = safeReportId(req.params.id);
+  if (!reportId) {
+    return res.status(400).json({ ok: false, error: 'Invalid report id.' });
+  }
+
+  const filePath = path.join(GENERATED_REPORT_DIR, `${reportId}.pdf`);
+
+  try {
+    await fsp.access(filePath);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="GrandMastrolog_${reportId}.pdf"`);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    return fs.createReadStream(filePath).pipe(res);
+  } catch {
+    return res.status(404).json({
+      ok: false,
+      error: 'Report not found or expired.'
+    });
+  }
+});
+
 
 initDb()
   .then(() => {
