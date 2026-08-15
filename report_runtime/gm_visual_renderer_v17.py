@@ -28,7 +28,6 @@ ELEMENT_DIR = ASSET / "elements"
 OPENING_ELEMENT_DIR = ASSET / "elements_opening"
 REFERENCE_DIR = HERE / "reference"
 OPENING_ELEMENT_REFERENCE = REFERENCE_DIR / "4_element_opening.png"
-REPORT_ELEMENT_REFERENCE = REFERENCE_DIR / "4_element_report.png"
 PAGE1_REFERENCE = REFERENCE_DIR / "Page_1_CANONICAL.png"
 PAGE2_REFERENCE = REFERENCE_DIR / "Page_2_CANONICAL.png"
 PAGE3_REFERENCE = REFERENCE_DIR / "Page_3_CANONICAL.png"
@@ -183,17 +182,18 @@ def validate(data: dict[str,Any], for_pdf: bool=True) -> None:
         if not isinstance(cusps,list) or len(cusps)!=12: raise ValueError("house_cusps must be 12 verified longitudes")
         for x in cusps:
             if not (0<=float(x)<360): raise ValueError("house_cusps longitude out of range")
-        for ref in (PAGE1_REFERENCE, PAGE2_REFERENCE, PAGE3_REFERENCE, REPORT_ELEMENT_REFERENCE):
+        for ref in (PAGE1_REFERENCE, PAGE2_REFERENCE, PAGE3_REFERENCE):
             if not ref.exists():
                 raise ValueError(f"missing canonical report reference: {ref.name}")
+        _need(data,"motto")
     vals,_scales=_element_payload(data)
     if any(v<0 for v in vals.values()): raise ValueError("negative element percentage")
     if not (99.9 <= sum(vals.values()) <= 100.1): raise ValueError("element percentages must sum to 100")
-    for s in {sun,asc,*[p["sign"] for p in placements]}:
-        if not (ZODIAC_DIR/ZODIAC_FILES[s]).exists(): raise ValueError(f"missing zodiac asset for {s}")
     for k in ELEMENT_KEYS:
-        if not (ELEMENT_DIR/ELEMENT_FILES[k]).exists(): raise ValueError(f"missing report element asset for {k}")
-        if not (OPENING_ELEMENT_DIR/ELEMENT_FILES[k]).exists(): raise ValueError(f"missing opening element asset for {k}")
+        asset_dir = ELEMENT_DIR if for_pdf else OPENING_ELEMENT_DIR
+        asset_kind = "report" if for_pdf else "opening"
+        if not (asset_dir/ELEMENT_FILES[k]).exists():
+            raise ValueError(f"missing {asset_kind} element asset for {k}")
 
 
 def _font_pil(size:int, bold=False):
@@ -255,6 +255,20 @@ def _paste_element_art(im: Image.Image, key:str, center:tuple[float,float], targ
     art=art.resize((max(1,int(art.width*ratio)),max(1,int(art.height*ratio))),Image.Resampling.LANCZOS)
     x,y=center
     im.alpha_composite(art,(int(x-art.width/2),int(y-art.height/2)))
+
+def _pil_alpha_overlay(im: Image.Image, box: tuple[int,int,int,int], fill: tuple[int,int,int,int],
+                       *, ellipse: bool=False, radius: int=0) -> None:
+    """Blend a genuinely translucent dark veil over a canonical reference zone."""
+    layer=Image.new("RGBA",im.size,(0,0,0,0))
+    d=ImageDraw.Draw(layer,"RGBA")
+    if ellipse:
+        d.ellipse(box,fill=fill)
+    elif radius:
+        d.rounded_rectangle(box,radius=radius,fill=fill)
+    else:
+        d.rectangle(box,fill=fill)
+    im.alpha_composite(layer)
+
 
 
 def render_elements_opening(data: dict[str,Any], out_path: str) -> None:
@@ -366,73 +380,94 @@ def render_elements_opening(data: dict[str,Any], out_path: str) -> None:
     im.convert("RGB").save(out_path,quality=96)
 
 def render_elements_report(data: dict[str,Any], out_path: str) -> None:
-    """PDF page 3: approved 4_element_report.png visual base + verified live data.
+    """PDF page 3: Page_3_CANONICAL.png is the full-page visual lock.
 
-    Example percentages and example medallion sizes embedded in the reference
-    are never treated as user data. Only those dynamic pixels are replaced.
+    The renderer does not rebuild the page frame, panels, headings or zodiac wheel.
+    It replaces only the dynamic element medallions and percentage values with
+    verified API data. Panel masks are translucent overlays, never opaque black.
     """
-    validate(data, for_pdf=False)
+    elements=_need(data,"elements")
+    if isinstance(elements,dict) and not all(k in elements for k in ELEMENT_KEYS):
+        visual=elements.get("visual_scale")
+        if not isinstance(visual,dict):
+            raise ValueError("elements.visual_scale is required for canonical PDF page 3")
+        for tr_key in ELEMENT_KEYS:
+            api_key=ELEMENT_API_KEYS[tr_key]
+            if api_key not in visual and tr_key not in visual:
+                raise ValueError(f"elements.visual_scale missing {api_key}")
     vals,scales=_element_payload(data)
-    if not REPORT_ELEMENT_REFERENCE.exists():
-        raise ValueError(f"missing canonical 4 Element reference: {REPORT_ELEMENT_REFERENCE.name}")
+    if not PAGE3_REFERENCE.exists():
+        raise ValueError(f"missing canonical report reference: {PAGE3_REFERENCE.name}")
 
-    im=Image.open(REPORT_ELEMENT_REFERENCE).convert("RGBA")
+    im=Image.open(PAGE3_REFERENCE).convert("RGBA")
     W,H=im.size
     d=ImageDraw.Draw(im,"RGBA")
-    cx,cy=W/2,760
-    bg=(3,10,12,255)
-    gold=(217,165,45,255)
+
+    # Coordinates are calibrated against the locked Page 3 composition.
+    # Scale them if the canonical PNG is exported at another pixel density.
+    base_w,base_h=1085.0,1535.0
+    sx,sy=W/base_w,H/base_h
+    ss=min(sx,sy)
+    def pt(x: float,y: float) -> tuple[int,int]:
+        return int(round(x*sx)),int(round(y*sy))
+    def box(x1: float,y1: float,x2: float,y2: float) -> tuple[int,int,int,int]:
+        a,b=pt(x1,y1); c,e=pt(x2,y2)
+        return a,b,c,e
+
     pale=(246,215,145,255)
 
-    # Remove baked example medallions; live canonical element art is placed next.
-    pos={"Ateş":(cx,455),"Toprak":(205,790),"Hava":(W-205,790),"Su":(cx,1085)}
+    # Remove only the baked example medallion content. This is a dark veil, not
+    # a redrawn wheel or a synthetic black panel; the canonical texture remains visible.
+    pos_base={"Ateş":(542.5,455),"Toprak":(205,790),"Hava":(880,790),"Su":(542.5,1085)}
     clear_r={"Ateş":174,"Toprak":179,"Hava":179,"Su":162}
-    for k,(x,y) in pos.items():
-        rr=clear_r[k]
-        d.ellipse((x-rr,y-rr,x+rr,y+rr),fill=bg)
+    positions={k:pt(*xy) for k,xy in pos_base.items()}
+    for k,(x,y) in positions.items():
+        rr=int(round(clear_r[k]*ss))
+        _pil_alpha_overlay(im,(x-rr,y-rr,x+rr,y+rr),(2,9,12,232),ellipse=True)
 
-    # Restore the main wheel lines across sanitized medallion zones.
-    for rradius,alpha,wid in [(410,205,2),(392,125,1),(335,95,1)]:
-        d.ellipse((cx-rradius,cy-rradius,cx+rradius,cy+rradius),
-                  outline=(217,165,45,alpha),width=wid)
-
-    # Live medallions from the packaged canonical element artwork.
+    # Live medallions use the API's real visual_scale exactly as supplied.
     base={"Ateş":286,"Toprak":282,"Hava":282,"Su":260}
     for k in ELEMENT_KEYS:
-        target=int(base[k]*scales[k])
-        _paste_element_art(im,k,pos[k],target,silver_air=True)
+        target=max(1,int(round(base[k]*scales[k]*ss)))
+        _paste_element_art(im,k,positions[k],target,silver_air=True)
 
-    # Replace the example outer labels/percentages after medallion sanitization.
-    outer_boxes={
-        "Ateş":(405,205,680,315),
-        "Toprak":(28,575,285,700),
-        "Hava":(800,575,1057,700),
-        "Su":(405,1190,680,1315),
+    # Preserve the canonical labels/headings. Only the baked percentage values
+    # are veiled and replaced with verified API percentages.
+    outer_pct_boxes={
+        "Ateş":(430,252,655,315),
+        "Toprak":(52,637,250,700),
+        "Hava":(835,637,1033,700),
+        "Su":(430,1247,655,1315),
     }
-    for box in outer_boxes.values():
-        d.rounded_rectangle(box,radius=9,fill=(3,10,12,246),outline=(217,165,45,150),width=2)
+    for raw in outer_pct_boxes.values():
+        _pil_alpha_overlay(im,box(*raw),(2,9,12,184),radius=max(2,int(round(8*ss))))
 
-    label_colors={"Ateş":(255,132,18,255),"Toprak":(197,221,28,255),
-                  "Hava":(205,226,238,255),"Su":(150,216,255,255)}
-    outer_pos={"Ateş":(cx,220),"Toprak":(151,600),"Hava":(W-151,600),"Su":(cx,1210)}
-    f_lab=_font_pil(31,True); f_pct=_font_pil(40,False)
-    for k,(x,y) in outer_pos.items():
-        name=k.upper(); pct=f"%{vals[k]:g}"
-        bb=d.textbbox((0,0),name,font=f_lab)
-        d.text((x-(bb[2]-bb[0])/2,y),name,font=f_lab,fill=label_colors[k])
+    label_colors={
+        "Ateş":(255,132,18,255),
+        "Toprak":(197,221,28,255),
+        "Hava":(205,226,238,255),
+        "Su":(150,216,255,255),
+    }
+    f_pct=_font_pil(max(18,int(round(40*ss))),False)
+    pct_centers={"Ateş":(542.5,266),"Toprak":(151,651),"Hava":(934,651),"Su":(542.5,1261)}
+    d=ImageDraw.Draw(im,"RGBA")
+    for k,(bx,by) in pct_centers.items():
+        x,y=pt(bx,by)
+        pct=f"%{vals[k]:g}"
         bb=d.textbbox((0,0),pct,font=f_pct)
-        d.text((x-(bb[2]-bb[0])/2,y+40),pct,font=f_pct,fill=label_colors[k])
+        d.text((x-(bb[2]-bb[0])/2,y),pct,font=f_pct,fill=label_colors[k])
 
-    # Center title/names/icons stay from the approved reference. Replace only
-    # the example percentage column.
-    center_pct_zone=(575,676,738,902)
-    d.rounded_rectangle(center_pct_zone,radius=10,fill=(2,11,13,250))
+    # Central percentage column: translucent overlay only, no replacement panel/frame.
+    _pil_alpha_overlay(im,box(575,676,738,902),(2,9,12,178),radius=max(2,int(round(10*ss))))
+    d=ImageDraw.Draw(im,"RGBA")
     center_rows={"Ateş":700,"Toprak":752,"Hava":804,"Su":856}
-    fp=_font_pil(27,True)
-    for k,y in center_rows.items():
+    fp=_font_pil(max(16,int(round(27*ss))),True)
+    right_x,_=pt(700,0)
+    for k,by in center_rows.items():
+        _,y=pt(0,by)
         pct=f"%{vals[k]:g}"
         bb=d.textbbox((0,0),pct,font=fp)
-        d.text((700-(bb[2]-bb[0]),y),pct,font=fp,fill=pale)
+        d.text((right_x-(bb[2]-bb[0]),y),pct,font=fp,fill=pale)
 
     im.convert("RGB").save(out_path,quality=96)
 
@@ -474,6 +509,17 @@ def _fit_text(c,text,x,y,width,font="GMSerif",size=12,leading=16,max_lines=6,col
     for line in lines:
         c.drawString(x,yy,line); yy-=leading
     return yy
+
+def _draw_centred_fit(c: canvas.Canvas, text: str, x: float, y: float, max_width: float,
+                       font: str, size: float, min_size: float, color=INK) -> float:
+    """Draw one centered line, shrinking only as much as needed to fit its locked zone."""
+    text=str(text or "")
+    actual=float(size)
+    while actual>min_size and c.stringWidth(text,font,actual)>max_width:
+        actual=max(min_size,actual-.25)
+    c.setFillColor(color); c.setFont(font,actual); c.drawCentredString(x,y,text)
+    return actual
+
 
 
 _ZODIAC_RENDER_CACHE: dict[str, ImageReader] = {}
@@ -618,32 +664,24 @@ def _draw_premium_zodiac_medallion(c: canvas.Canvas, sign: str, x: float, y: flo
     c.restoreState()
 
 def _page1(c,data,w,h):
-    """Page 1: canonical reference locked as visual base; only personal zones are dynamic."""
+    """Page 1: canonical reference is the page; renderer overlays live text only."""
     prof=data["profile"]
     ref_size=(1024,1535)
     _draw_reference_page(c,PAGE1_REFERENCE,w,h)
 
-    # The reference contains example personal data. Hide ONLY those fields.
-    # Borders, cosmic texture, ornaments and approved composition stay untouched.
+    # Veil only baked sample text. The premium frame, texture and composition stay untouched.
+    # Alpha is intentionally below 1.0 so these areas are never opaque black panels.
+    overlay=Color(.008,.014,.016,alpha=.76)
     for box in [
-        (292,326,520,603),     # data values column
+        (292,326,520,603),     # birth-data values
         (62,833,505,1099),     # Senin Yolun body
-        (62,1191,505,1394),    # Sinerji body
-        (188,1450,846,1493),   # motto/footer text
+        (62,1134,505,1188),    # dynamic synergy title
+        (62,1191,505,1394),    # synergy body
+        (188,1450,846,1493),   # motto/footer
     ]:
-        _ref_box(c,ref_size,w,h,*box,fill=Color(.008,.014,.016,alpha=1.0),radius=2)
+        _ref_box(c,ref_size,w,h,*box,fill=overlay,radius=2)
 
-    # Reference art is Mustafa's approved Aslan/Balık pair. For other pairs,
-    # sanitize the example medallions and rebuild them from packaged zodiac assets.
-    approved_pair=(data["asc_sign"]=="Aslan" and data["sun_sign"]=="Balık")
-    if not approved_pair:
-        for box in [
-            (650,430,1010,910),   # ASC label + medallion
-            (635,930,1010,1385),  # Sun label + medallion
-        ]:
-            _ref_box(c,ref_size,w,h,*box,fill=Color(.004,.012,.014,alpha=1.0),radius=6)
-
-    # Birth data — same coordinates and typographic hierarchy as reference.
+    # Birth data - only live values are added; labels remain canonical artwork.
     values=[
         _human_date_tr(prof["birth_date"]),
         str(prof["birth_time"]),
@@ -662,37 +700,23 @@ def _page1(c,data,w,h):
     x,y=_ref_xy(ref_size,w,h,65,858)
     _fit_text(c,st,x,y,415/ref_size[0]*w,font="GMSerif",size=13.0,leading=18.0,max_lines=10,color=INK)
 
-    # Güneş + Yükselen sinerjisi
+    # Required dynamic title: <Güneş> + <Yükselen> Sinerjisi
+    synergy_title=f"{data['sun_sign']} + {data['asc_sign']} Sinerjisi"
+    tx,ty=_ref_xy(ref_size,w,h,283,1169)
+    _draw_centred_fit(c,synergy_title,tx,ty,405/ref_size[0]*w,
+                      "GMSerifBold",16.0,11.0,GOLD)
+
     syn=data.get("synergy_text","")
     if isinstance(syn,list): syn=" ".join(syn)
     x,y=_ref_xy(ref_size,w,h,65,1217)
     _fit_text(c,syn,x,y,415/ref_size[0]*w,font="GMSerifItalic",size=12.6,leading=18.5,max_lines=8,color=INK)
 
-    if not approved_pair:
-        # Dynamic premium medallions for any other sign pair.
-        ax,ay=_ref_xy(ref_size,w,h,790,695)
-        sx,sy=_ref_xy(ref_size,w,h,785,1163)
-        ar=124/ref_size[0]*w
-        sr=124/ref_size[0]*w
-        _draw_premium_zodiac_medallion(c,data["asc_sign"],ax,ay,ar,"gold")
-        _draw_premium_zodiac_medallion(c,data["sun_sign"],sx,sy,sr,"blue")
-
-        # Labels
-        for label,sign,xx,yy in [
-            ("YÜKSELEN",data["asc_sign"],790,466),
-            ("GÜNEŞ",data["sun_sign"],785,952),
-        ]:
-            x,y=_ref_xy(ref_size,w,h,xx,yy)
-            c.setFillColor(GOLD); c.setFont("GMSerifBold",15)
-            c.drawCentredString(x,y,label)
-            c.setFont("GMSerifBold",30)
-            c.drawCentredString(x,y-29,sign.upper())
-
+    # Payload motto - never substituted with canned copy.
     motto=str(data.get("motto","") or "")
     if motto:
         x,y=_ref_xy(ref_size,w,h,512,1478)
-        c.setFillColor(PALE_GOLD); c.setFont("GMSerifBold",10.4)
-        c.drawCentredString(x,y,motto)
+        _draw_centred_fit(c,motto,x,y,620/ref_size[0]*w,
+                          "GMSerifBold",10.4,7.2,PALE_GOLD)
 
 
 def _polar(lon,cx,cy,r):
@@ -760,99 +784,17 @@ def _badge(c,p,x,y,sz=54,label_side="right"):
 
 
 def _page2(c,data,w,h):
-    """Page 2: canonical style background with all sample-data zones sanitized."""
-    prof=data["profile"]
-    ref_size=(1055,1491)
+    """Page 2: use the locked premium page as-is; do not reconstruct it."""
     _draw_reference_page(c,PAGE2_REFERENCE,w,h)
-
-    # Hide the reference's example chart/tables while preserving frame, title,
-    # outer galaxy texture and decorative composition.
-    _ref_box(c,ref_size,w,h,22,205,702,1375,fill=Color(.003,.012,.014,alpha=1.0),radius=5)
-    _ref_box(c,ref_size,w,h,704,210,1030,1332,fill=Color(.003,.012,.014,alpha=1.0),radius=5)
-
-    # Return subtle texture to the sanitized zones without reintroducing sample data.
-    _stars_region(c,f"{prof.get('name','')}|{prof['birth_date']}|p2-left",14,90,w*.64,h*.68,190)
-    _stars_region(c,f"{prof.get('name','')}|{prof['birth_date']}|p2-right",w*.675,95,w*.30,h*.69,90)
-
-    cx=w*.34; cy=h*.50; R=w*.25
-
-    # Decorative wheel halo closer to the canonical reference.
-    c.saveState()
-    for rr,alpha,lw in [(R*1.10,.14,9),(R*1.04,.30,4),(R,.90,1.0)]:
-        try: c.setStrokeAlpha(alpha)
-        except Exception: pass
-        c.setStrokeColor(GOLD); c.setLineWidth(lw); c.circle(cx,cy,rr,stroke=1,fill=0)
-    try: c.setStrokeAlpha(1)
-    except Exception: pass
-    c.restoreState()
-    _draw_wheel(c,data,cx,cy,R)
-
-    # Dynamic badges around the wheel.
-    priority=["Güneş","MC","Merkür","Venüs","Mars","Satürn","Plüton","Jüpiter","Ay","ASC Yükselen","Yükselen"]
-    selected=[]
-    for k in priority:
-        p=next((q for q in data["placements"] if q["body"]==k),None)
-        if p and p not in selected: selected.append(p)
-        if len(selected)>=10: break
-    slots=[(55,h*.70),(w*.33,h*.79),(w*.51,h*.70),(w*.58,h*.54),(w*.54,h*.39),(w*.43,h*.26),(w*.31,h*.19),(w*.17,h*.22),(55,h*.37),(55,h*.55)]
-    for p,(x,y) in zip(selected,slots):
-        side="left" if x>w*.48 else "right"
-        _badge(c,p,x,y,50,label_side=side)
-
-    # Right-side live tables.
-    tx=w*.68; tw=w*.29; top=h*.76
-    c.setFillColor(Color(.003,.012,.014,alpha=.82))
-    c.setStrokeColor(GOLD); c.setLineWidth(.8); c.roundRect(tx,top-230,tw,230,6,stroke=1,fill=1)
-    c.setFillColor(GOLD); c.setFont("GMSerifBold",12); c.drawCentredString(tx+tw/2,top-18,"NATAL YERLEŞİMLER")
-    col_body=tx+8; col_sign=tx+tw*.43; col_deg=tx+tw*.69; col_house=tx+tw*.92
-    c.setFont("GMSerifBold",6.7); c.drawString(col_body,top-38,"GÖSTERGE"); c.drawString(col_sign,top-38,"BURÇ"); c.drawString(col_deg,top-38,"DERECE"); c.drawString(col_house,top-38,"EV")
-    rows=data["placements"][:10]
-    yy=top-54; c.setFont("GMSerif",7.0); c.setFillColor(INK)
-    label_map={"Kuzey Ay Düğümü":"Kuzey Düğüm","ASC Yükselen":"ASC Yükselen"}
-    for p in rows:
-        body=label_map.get(p["body"],p["body"])[:15]
-        deg=str(p["degree"])[:9]
-        c.drawString(col_body,yy,body); c.drawString(col_sign,yy,p["sign"]); c.drawString(col_deg,yy,deg); c.drawString(col_house,yy,str(p.get("house","")))
-        yy-=16
-
-    at=top-255; ah=210
-    c.setFillColor(Color(.003,.012,.014,alpha=.82))
-    c.setStrokeColor(GOLD); c.roundRect(tx,at-ah,tw,ah,6,stroke=1,fill=1)
-    c.setFillColor(GOLD); c.setFont("GMSerifBold",12); c.drawCentredString(tx+tw/2,at-18,"ANA AÇI DESENLERİ")
-    c.setFont("GMSerifBold",7.2); c.drawString(tx+8,at-38,"AÇI"); c.drawString(tx+tw*.34,at-38,"GÖSTERGELER"); c.drawString(tx+tw*.84,at-38,"ORB")
-    aspects=sorted(data.get("aspects",[]),key=lambda a:(-(a.get("strength") or 0),float(a.get("orb",99))))[:7]
-    yy=at-55; c.setFont("GMSerif",7.6); c.setFillColor(INK)
-    for a in aspects:
-        c.drawString(tx+8,yy,str(a.get("type",""))[:12]); c.drawString(tx+tw*.34,yy,f"{a.get('a','')} - {a.get('b','')}"[:28]); c.drawString(tx+tw*.85,yy,f"{a.get('orb','')}°")
-        yy-=18
-
-    st=at-ah-24; sh=88
-    c.setFillColor(Color(.003,.012,.014,alpha=.82))
-    c.setStrokeColor(GOLD); c.roundRect(tx,st-sh,tw,sh,6,stroke=1,fill=1)
-    c.setFillColor(GOLD); c.setFont("GMSerifBold",11); c.drawCentredString(tx+tw/2,st-18,"AÇI GÜÇLERİ")
-    strengths=[float(a["strength"]) for a in data.get("aspects",[]) if a.get("strength") is not None]
-    if strengths:
-        avg=sum(strengths)/len(strengths); x0=tx+12; y0=st-52; barw=tw-24
-        c.setFillColor(HexColor("#1d4d6a")); c.rect(x0,y0,barw,10,fill=1,stroke=0)
-        c.setFillColor(HexColor("#f5a13a")); c.rect(x0,y0,barw*max(0,min(1,avg)),10,fill=1,stroke=0)
-        c.setFont("GMSerif",7); c.setFillColor(INK); c.drawString(x0,y0-12,"ZAYIF"); c.drawRightString(x0+barw,y0-12,"GÜÇLÜ")
-    else:
-        c.setFont("GMSerifItalic",7.5); c.setFillColor(MUTED); c.drawCentredString(tx+tw/2,st-53,"Doğrulanmış güç verisi yoksa ölçek üretilmez.")
-    c.setFillColor(GOLD); c.setFont("GMSerif",9); c.drawCentredString(w/2,20,"GrandMastrolog Özel Danışmanlık Raporu")
 
 
 def _page3(c,data,w,h) -> None:
-    # Page 3 uses the report-only element composition. Opening/chat and PDF
-    # references are intentionally separate canonical assets.
+    """Page 3: full-bleed canonical page plus verified dynamic element data."""
     with tempfile.TemporaryDirectory(prefix="gmv17_page3_") as td:
-        png=Path(td)/"elements_report.png"
+        png=Path(td)/"page3_live.png"
         render_elements_report(data,str(png))
-        im=Image.open(png)
-        iw,ih=im.size
-        scale=min(w/iw,h/ih)
-        dw,dh=iw*scale,ih*scale
-        c.setFillColor(DARK); c.rect(0,0,w,h,fill=1,stroke=0)
-        c.drawImage(ImageReader(im), (w-dw)/2, (h-dh)/2, dw, dh, mask='auto')
+        c.drawImage(ImageReader(str(png)),0,0,w,h,mask='auto')
+
 
 def render_pdf(data: dict[str,Any], out_path: str) -> None:
     validate(data,for_pdf=True); register_fonts(); c=canvas.Canvas(out_path,pagesize=A4)
