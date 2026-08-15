@@ -1,0 +1,40 @@
+{
+  "profile": {
+    "name": "Test Kişisi",
+    "birth_date": "1 Ocak 2000",
+    "birth_time": "12:00",
+    "birth_place": "Ankara / Türkiye",
+    "report_date": "13 Ağustos 2026"
+  },
+  "sun_sign": "Koç",
+  "asc_sign": "Terazi",
+  "senin_yolun": "Görünürlüğü yalnız dikkat çekmek için değil, ilişki kurduğun insanlarla ortak bir ölçü yaratmak için kullandığında haritanın en verimli tarafı açılır. Hızın ile denge arayışın aynı masada çalışmayı öğrenmek zorunda.",
+  "synergy_text": "Koç'un doğrudan iradesi Terazi yükselenin ilişki zekâsıyla birleştiğinde tek başına saldırgan ya da uzlaşmacı olmayan üçüncü bir güç doğar: karşı tarafı hesaba katarken yönü kaybetmeyen girişimcilik. En iyi versiyonu, insanları peşinden sürüklemek yerine onları hareketin ortağı yapar.",
+  "motto": "Koç & Terazi: Yönünü kaybetmeden başkasına yer açtığında denge senin hızına yetişir.",
+  "elements": {"Ateş": 32, "Toprak": 28, "Hava": 18, "Su": 22},
+  "house_cusps": [188.0, 218.0, 248.0, 278.0, 308.0, 338.0, 8.0, 38.0, 68.0, 98.0, 128.0, 158.0],
+  "placements": [
+    {"body":"Güneş","sign":"Koç","degree":"12°10′","house":7,"longitude":12.166,"retrograde":false},
+    {"body":"Ay","sign":"Yengeç","degree":"04°20′","house":9,"longitude":94.333,"retrograde":false},
+    {"body":"Merkür","sign":"Balık","degree":"26°05′","house":6,"longitude":356.083,"retrograde":false},
+    {"body":"Venüs","sign":"Boğa","degree":"08°42′","house":8,"longitude":38.7,"retrograde":false},
+    {"body":"Mars","sign":"İkizler","degree":"17°11′","house":9,"longitude":77.183,"retrograde":false},
+    {"body":"Jüpiter","sign":"Boğa","degree":"22°30′","house":8,"longitude":52.5,"retrograde":false},
+    {"body":"Satürn","sign":"Koç","degree":"03°15′","house":7,"longitude":3.25,"retrograde":false},
+    {"body":"Uranüs","sign":"Kova","degree":"14°40′","house":5,"longitude":314.667,"retrograde":false},
+    {"body":"Neptün","sign":"Kova","degree":"02°10′","house":5,"longitude":302.167,"retrograde":false},
+    {"body":"Plüton","sign":"Yay","degree":"10°05′","house":3,"longitude":250.083,"retrograde":true},
+    {"body":"Kuzey Ay Düğümü","sign":"Aslan","degree":"06°12′","house":11,"longitude":126.2,"retrograde":true},
+    {"body":"ASC Yükselen","sign":"Terazi","degree":"08°00′","house":1,"longitude":188.0,"retrograde":false},
+    {"body":"MC","sign":"Yengeç","degree":"08°00′","house":10,"longitude":98.0,"retrograde":false}
+  ],
+  "aspects": [
+    {"type":"Kavuşum","a":"Güneş","b":"Satürn","orb":8.9,"strength":0.35},
+    {"type":"Kare","a":"Güneş","b":"Ay","orb":7.8,"strength":0.42},
+    {"type":"Sekstil","a":"Güneş","b":"Uranüs","orb":2.5,"strength":0.78},
+    {"type":"Üçgen","a":"Ay","b":"Merkür","orb":1.8,"strength":0.86},
+    {"type":"Kavuşum","a":"Venüs","b":"Jüpiter","orb":13.8,"strength":0.18},
+    {"type":"Sekstil","a":"Venüs","b":"Ay","orb":4.4,"strength":0.62},
+    {"type":"Karşıtlık","a":"Mars","b":"Plüton","orb":7.1,"strength":0.40}
+  ]
+}

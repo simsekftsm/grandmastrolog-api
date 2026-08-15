@@ -1,0 +1,40 @@
+{
+  "profile": {
+    "name": "Dinamik Test B",
+    "birth_date": "10 Mart 1990",
+    "birth_time": "15:30",
+    "birth_place": "Üsküdar / İstanbul",
+    "report_date": "14 Ağustos 2026"
+  },
+  "sun_sign": "Balık",
+  "asc_sign": "Aslan",
+  "senin_yolun": "Sezgi ile görünürlüğü birbirine rakip değil araç yaptığında üretimin daha güçlü bir iz bırakır. İçeride işlediğin malzemeyi dışarıda taşıyacak sahneyi kurmak, bu haritanın iki ayrı ihtiyacını aynı hatta toplar.",
+  "synergy_text": "Balık'ın geçirgen algısı Aslan yükselenin görünür iradesiyle birleştiğinde üçüncü sonuç yalnız hassasiyet ya da sahne değildir: görünmeyen bir şeyi biçim vererek başkalarının da görebileceği hâle getirmek. Bu birleşim, iç malzemeyi dış dünyada taşıyacak bir form bulduğunda en güçlü çalışır.",
+  "motto": "Balık & Aslan: İçeride gördüğünü dışarıda bir biçime çevirdiğinde ışık sana ait olur.",
+  "elements": {"Ateş": 45, "Toprak": 25, "Hava": 20, "Su": 10},
+  "house_cusps": [140.3, 170.2, 202.5, 236.0, 270.4, 305.8, 320.3, 350.2, 22.5, 56.0, 90.4, 125.8],
+  "placements": [
+    {"body":"Güneş","sign":"Balık","degree":"19°43′","house":8,"longitude":349.716,"retrograde":false},
+    {"body":"Ay","sign":"Başak","degree":"10°10′","house":2,"longitude":160.166,"retrograde":false},
+    {"body":"Merkür","sign":"Balık","degree":"12°01′","house":8,"longitude":342.016,"retrograde":false},
+    {"body":"Venüs","sign":"Kova","degree":"05°03′","house":7,"longitude":305.05,"retrograde":false},
+    {"body":"Mars","sign":"Oğlak","degree":"29°11′","house":6,"longitude":299.183,"retrograde":false},
+    {"body":"Jüpiter","sign":"Yengeç","degree":"01°07′","house":12,"longitude":91.116,"retrograde":false},
+    {"body":"Satürn","sign":"Oğlak","degree":"22°55′","house":6,"longitude":292.916,"retrograde":false},
+    {"body":"Uranüs","sign":"Oğlak","degree":"09°05′","house":6,"longitude":279.083,"retrograde":false},
+    {"body":"Neptün","sign":"Oğlak","degree":"14°12′","house":6,"longitude":284.2,"retrograde":false},
+    {"body":"Plüton","sign":"Akrep","degree":"17°40′","house":4,"longitude":227.666,"retrograde":true},
+    {"body":"Kuzey Ay Düğümü","sign":"Kova","degree":"14°32′","house":7,"longitude":314.533,"retrograde":true},
+    {"body":"ASC Yükselen","sign":"Aslan","degree":"20°18′","house":1,"longitude":140.3,"retrograde":false},
+    {"body":"MC","sign":"Boğa","degree":"11°59′","house":10,"longitude":41.983,"retrograde":false}
+  ],
+  "aspects": [
+    {"type":"Kavuşum","a":"Güneş","b":"Merkür","orb":7.7,"strength":0.45},
+    {"type":"Karşıtlık","a":"Ay","b":"Merkür","orb":1.85,"strength":0.88},
+    {"type":"Kare","a":"Venüs","b":"Plüton","orb":2.6,"strength":0.78},
+    {"type":"Üçgen","a":"Güneş","b":"Jüpiter","orb":1.4,"strength":0.91},
+    {"type":"Sekstil","a":"Merkür","b":"Mars","orb":2.8,"strength":0.74},
+    {"type":"Sekstil","a":"Venüs","b":"Jüpiter","orb":3.9,"strength":0.61},
+    {"type":"Üçgen","a":"Mars","b":"MC","orb":2.8,"strength":0.71}
+  ]
+}

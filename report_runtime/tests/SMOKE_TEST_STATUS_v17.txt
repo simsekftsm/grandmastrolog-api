@@ -1,0 +1,21 @@
+GRANDMASTROLOG v17 — LOCAL VISUAL RENDERER SMOKE
+Date: 2026-08-15
+
+PASS: synthetic_report_input.json -> 3-page PDF.
+PASS: synthetic_report_input_B.json -> 3-page PDF.
+PASS: both PDFs physically differ and contain their own profile/sign data.
+PASS: A data did not leak into B; B data did not leak into A.
+PASS: both inputs -> 1085x1450 dynamic 4 Element PNG.
+PASS: element outputs physically differ by percentages/layout prominence.
+PASS: Page 1 and Page 2 remain pixel-exact against the immediate parent renderer for the same synthetic input at 180 DPI.
+PASS: Page 3 uses dynamic element percentages; Hava is derived in-memory as silver only on Page 3; source element assets remain byte-exact.
+PASS: 12 zodiac source assets match canonical burclar_500x500 SHA-256 manifest.
+PASS: renderer imports no requests/urllib/httpx/aiohttp/socket/selenium/playwright and contains no HTTP URL dependency.
+PASS: visual inspection after PDF render found no clipped page edges, black squares, checkerboard source background, or broken Turkish glyph blocks.
+
+NOTE: package smoke is not Custom GPT Preview acceptance. Live result remains CANLI KABUL BEKLİYOR.
+
+PASS: owner revision: opening element visual uses reference/4_element_opening.png family at 1254x1254.
+PASS: owner revision: PDF Page 3 uses reference/4_element_report.png family at 1085x1450.
+PASS: API-shaped gm_elements_v17_1 packet (percent + visual_scale) renders successfully.
+PASS: Page 1 and Page 2 remain pixel-exact against the pre-owner-patch renderer at 180 DPI.
