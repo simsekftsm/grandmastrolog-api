@@ -1723,7 +1723,26 @@ app.post('/report/render', requireSecret, async (req, res) => {
   try {
     await ensureReportRuntime();
 
-    const payload = req.body || {};
+    const payload = { ...(req.body || {}) };
+
+    if (!Array.isArray(payload.placements) && typeof payload.placements_json === 'string') {
+      try {
+        const parsedPlacements = JSON.parse(payload.placements_json);
+        if (!Array.isArray(parsedPlacements)) {
+          throw new Error('placements_json must decode to an array.');
+        }
+        payload.placements = parsedPlacements;
+      } catch (err) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Invalid placements_json.',
+          detail: err.message
+        });
+      }
+    }
+
+    delete payload.placements_json;
+
     await fsp.writeFile(inputPath, JSON.stringify(payload), 'utf8');
 
     await runProcess(
