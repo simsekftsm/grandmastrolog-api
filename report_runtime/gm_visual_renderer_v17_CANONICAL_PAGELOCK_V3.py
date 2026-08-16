@@ -414,11 +414,8 @@ def render_elements_report(data: dict[str,Any], out_path: str) -> None:
 
     im=Image.open(PAGE3_REFERENCE).convert("RGBA")
     W,H=im.size
-    d=ImageDraw.Draw(im,"RGBA")
 
-    # Coordinates are calibrated against the locked Page 3 composition.
-    # Scale them if the canonical PNG is exported at another pixel density.
-    base_w,base_h=1085.0,1535.0
+    base_w,base_h=1024.0,1535.0
     sx,sy=W/base_w,H/base_h
     ss=min(sx,sy)
     def pt(x: float,y: float) -> tuple[int,int]:
@@ -428,59 +425,63 @@ def render_elements_report(data: dict[str,Any], out_path: str) -> None:
         return a,b,c,e
 
     pale=(246,215,145,255)
-
-    # Remove only the baked example medallion content. This is a dark veil, not
-    # a redrawn wheel or a synthetic black panel; the canonical texture remains visible.
-    pos_base={"Ateş":(542.5,455),"Toprak":(205,790),"Hava":(880,790),"Su":(542.5,1085)}
-    clear_r={"Ateş":174,"Toprak":179,"Hava":179,"Su":162}
-    positions={k:pt(*xy) for k,xy in pos_base.items()}
-    for k,(x,y) in positions.items():
-        rr=int(round(clear_r[k]*ss))
-        _pil_alpha_overlay(im,(x-rr,y-rr,x+rr,y+rr),(2,9,12,232),ellipse=True)
-
-    # Live medallions use the API's real visual_scale exactly as supplied.
-    base={"Ateş":286,"Toprak":282,"Hava":282,"Su":260}
-    for k in ELEMENT_KEYS:
-        target=max(1,int(round(base[k]*scales[k]*ss)))
-        _paste_element_art(im,k,positions[k],target,silver_air=True)
-
-    # Preserve the canonical labels/headings. Only the baked percentage values
-    # are veiled and replaced with verified API percentages.
-    outer_pct_boxes={
-        "Ateş":(430,252,655,315),
-        "Toprak":(52,637,250,700),
-        "Hava":(835,637,1033,700),
-        "Su":(430,1247,655,1315),
-    }
-    for raw in outer_pct_boxes.values():
-        _pil_alpha_overlay(im,box(*raw),(2,9,12,184),radius=max(2,int(round(8*ss))))
-
     label_colors={
         "Ateş":(255,132,18,255),
         "Toprak":(197,221,28,255),
         "Hava":(205,226,238,255),
         "Su":(150,216,255,255),
     }
-    f_pct=_font_pil(max(18,int(round(40*ss))),False)
-    pct_centers={"Ateş":(542.5,266),"Toprak":(151,651),"Hava":(934,651),"Su":(542.5,1261)}
+
+    pos_base={"Ateş":(512,454),"Toprak":(194,792),"Hava":(830,792),"Su":(512,1095)}
+    clear_r={"Ateş":166,"Toprak":172,"Hava":172,"Su":154}
+    positions={k:pt(*xy) for k,xy in pos_base.items()}
+    for k,(x,y) in positions.items():
+        rr=int(round(clear_r[k]*ss))
+        _pil_alpha_overlay(im,(x-rr,y-rr,x+rr,y+rr),(2,9,12,235),ellipse=True)
+
+    base={"Ateş":278,"Toprak":274,"Hava":274,"Su":252}
+    for k in ELEMENT_KEYS:
+        target=max(1,int(round(base[k]*scales[k]*ss)))
+        _paste_element_art(im,k,positions[k],target,silver_air=True)
+
+    outer_pct_boxes={
+        "Ateş":(438,228,586,288),
+        "Toprak":(36,626,162,686),
+        "Hava":(861,626,987,686),
+        "Su":(456,1250,568,1332),
+    }
+    for raw in outer_pct_boxes.values():
+        _pil_alpha_overlay(im,box(*raw),(2,9,12,208),radius=max(2,int(round(10*ss))))
+
     d=ImageDraw.Draw(im,"RGBA")
+    f_outer=_font_pil(max(18,int(round(38*ss))),False)
+    pct_centers={"Ateş":(512,240),"Toprak":(98,636),"Hava":(926,636),"Su":(512,1312)}
     for k,(bx,by) in pct_centers.items():
         x,y=pt(bx,by)
-        pct=f"%{vals[k]:g}"
-        bb=d.textbbox((0,0),pct,font=f_pct)
-        d.text((x-(bb[2]-bb[0])/2,y),pct,font=f_pct,fill=label_colors[k])
+        pct=_fmt_pct(vals[k])
+        bb=d.textbbox((0,0),pct,font=f_outer)
+        d.text((x-(bb[2]-bb[0])/2,y),pct,font=f_outer,fill=label_colors[k])
 
-    # Central percentage column: translucent overlay only, no replacement panel/frame.
-    _pil_alpha_overlay(im,box(575,676,738,902),(2,9,12,178),radius=max(2,int(round(10*ss))))
+    _pil_alpha_overlay(im,box(404,657,620,929),(2,9,12,202),radius=max(2,int(round(18*ss))))
     d=ImageDraw.Draw(im,"RGBA")
-    center_rows={"Ateş":700,"Toprak":752,"Hava":804,"Su":856}
-    fp=_font_pil(max(16,int(round(27*ss))),True)
-    right_x,_=pt(700,0)
-    for k,by in center_rows.items():
+    f_title=_font_pil(max(13,int(round(20*ss))),True)
+    f_row=_font_pil(max(14,int(round(24*ss))),True)
+    f_pct=_font_pil(max(14,int(round(23*ss))),True)
+    cx,cy=pt(512,705)
+    title="4 ELEMENT DAĞILIMI"
+    bb=d.textbbox((0,0),title,font=f_title)
+    d.text((cx-(bb[2]-bb[0])/2,cy),title,font=f_title,fill=pale)
+    x1,y1=pt(448,736); x2,_=pt(576,736)
+    d.line((x1,y1,x2,y1),fill=(214,181,103,155),width=max(1,int(round(1.5*ss))))
+    row_y={"Ateş":770,"Toprak":822,"Hava":874,"Su":926}
+    label_x,_=pt(438,0)
+    right_x,_=pt(585,0)
+    for k,by in row_y.items():
         _,y=pt(0,by)
-        pct=f"%{vals[k]:g}"
-        bb=d.textbbox((0,0),pct,font=fp)
-        d.text((right_x-(bb[2]-bb[0]),y),pct,font=fp,fill=pale)
+        d.text((label_x,y),k.upper(),font=f_row,fill=label_colors[k])
+        pct=_fmt_pct(vals[k])
+        bb=d.textbbox((0,0),pct,font=f_pct)
+        d.text((right_x-(bb[2]-bb[0]),y),pct,font=f_pct,fill=pale)
 
     im.convert("RGB").save(out_path,quality=96)
 
@@ -622,6 +623,37 @@ def _human_date_tr(value: Any) -> str:
     return s
 
 
+def _normalize_body_name(body: Any) -> str:
+    raw=str(body or "").strip()
+    return BODY_TR_MAP.get(raw, raw)
+
+
+def _resolved_signs(data: dict[str,Any]) -> tuple[str,str]:
+    sun=str(data.get("sun_sign") or "").strip()
+    asc=str(data.get("asc_sign") or "").strip()
+    for p in data.get("placements",[]) or []:
+        body=_normalize_body_name(p.get("body"))
+        sign=str(p.get("sign") or "").strip()
+        if body=="Güneş" and sign in SIGNS:
+            sun=sign
+        elif body in ("ASC Yükselen","Yükselen") and sign in SIGNS:
+            asc=sign
+    if sun not in SIGNS:
+        sun=SIGNS[0]
+    if asc not in SIGNS:
+        asc=SIGNS[0]
+    return sun,asc
+
+
+def _fmt_pct(value: Any) -> str:
+    try:
+        v=float(value)
+    except Exception:
+        return str(value)
+    if abs(v-round(v)) < 0.05:
+        return f"%{int(round(v))}"
+    return f"%{v:.1f}".replace(".0","")
+
 
 def _stars_region(c: canvas.Canvas, seed: str, x: float, y: float, width: float, height: float, n: int=140) -> None:
     """Add restrained canonical-like star texture only inside a sanitized live-data zone."""
@@ -709,62 +741,83 @@ def _page1(c,data,w,h):
     prof=data["profile"]
     ref_size=(1024,1535)
     _draw_reference_page(c,PAGE1_REFERENCE,w,h)
+    sun_sign,asc_sign=_resolved_signs(data)
 
-    # Veil only baked sample text. Keep borders/textures visible while fully hiding the
-    # old example copy, so no black blotches remain behind the live text.
-    value_overlay=Color(.008,.014,.016,alpha=.72)
-    body_overlay=Color(.008,.014,.016,alpha=.84)
-    _ref_box(c,ref_size,w,h,300,334,498,594,fill=value_overlay,radius=2)
-    _ref_box(c,ref_size,w,h,78,846,492,1084,fill=body_overlay,radius=2)
-    _ref_box(c,ref_size,w,h,78,1141,492,1183,fill=body_overlay,radius=2)
-    _ref_box(c,ref_size,w,h,78,1198,492,1382,fill=body_overlay,radius=2)
-    _ref_box(c,ref_size,w,h,196,1456,836,1490,fill=Color(.008,.014,.016,alpha=.54),radius=2)
+    veil_soft=Color(.008,.014,.016,alpha=.78)
+    veil_body=Color(.008,.014,.016,alpha=.92)
 
-    # Birth data values centred inside the right column so the rows align cleanly.
+    # Left birth-data value column.
+    for row in [(280,332,507,401),(280,404,507,472),(280,475,507,543),(280,546,507,614)]:
+        _ref_box(c,ref_size,w,h,*row,fill=veil_soft,radius=2)
+    # Right-side baked sample meta around the medallions.
+    for row in [
+        (650,320,878,366),
+        (675,392,835,437),
+        (625,451,905,503),
+        (690,549,830,592),
+    ]:
+        _ref_box(c,ref_size,w,h,*row,fill=Color(.008,.014,.016,alpha=.82),radius=2)
+
+    # Senin Yolun / Sinerji / motto zones.
+    _ref_box(c,ref_size,w,h,70,825,500,1098,fill=veil_body,radius=3)
+    _ref_box(c,ref_size,w,h,70,1128,500,1398,fill=veil_body,radius=3)
+    _ref_box(c,ref_size,w,h,150,1447,878,1500,fill=Color(.008,.014,.016,alpha=.78),radius=3)
+
     values=[
         _human_date_tr(prof["birth_date"]),
         str(prof["birth_time"]),
         str(prof["birth_place"]),
         _human_date_tr(prof["report_date"]),
     ]
-    value_width=360/ref_size[0]*w
-    value_x=735
-    value_ys=[356,427,498,569]
-    for value,yy in zip(values,value_ys):
-        x,y=_ref_xy(ref_size,w,h,value_x,yy)
-        _draw_centred_fit(c,value,x,y,value_width,"GMSerif",13.5,10.8,PALE_GOLD)
+    left_value_x=391
+    left_value_ys=[364,435,505,575]
+    left_width=205/ref_size[0]*w
+    for value,yy in zip(values,left_value_ys):
+        x,y=_ref_xy(ref_size,w,h,left_value_x,yy)
+        _draw_centred_fit(c,value,x,y,left_width,"GMSerif",13.4,10.8,PALE_GOLD)
 
-    # Senin Yolun body: italic, clean, and same gold tone as the birth-data values.
+    right_meta=[
+        (_human_date_tr(prof["birth_date"]), 764, 345, 230),
+        (str(prof["birth_time"]), 756, 417, 160),
+        (str(prof["birth_place"]), 765, 482, 280),
+        (_human_date_tr(prof["report_date"]), 758, 571, 170),
+    ]
+    for value,xx,yy,ww in right_meta:
+        x,y=_ref_xy(ref_size,w,h,xx,yy)
+        _draw_centred_fit(c,value,x,y,ww/ref_size[0]*w,"GMSerif",11.6,9.1,PALE_GOLD)
+
     st=data.get("senin_yolun","")
     if isinstance(st,list): st=" ".join(st)
     x,y=_ref_xy(ref_size,w,h,76,872)
-    _fit_text(c,st,x,y,402/ref_size[0]*w,font="GMSerifItalic",size=13.0,leading=18.3,max_lines=10,color=PALE_GOLD)
+    _fit_text(c,st,x,y,398/ref_size[0]*w,font="GMSerifItalic",size=13.1,leading=18.2,max_lines=9,color=PALE_GOLD)
 
-    # Repair the live panel edge so the right/bottom frame stays visually intact.
     c.saveState()
-    c.setStrokeColor(Color(.85,.65,.20,alpha=.88))
+    c.setStrokeColor(Color(.85,.65,.20,alpha=.90))
     c.setLineWidth(0.8)
-    x1,y1=_ref_xy(ref_size,w,h,500,845)
-    x2,y2=_ref_xy(ref_size,w,h,500,1084)
+    x1,y1=_ref_xy(ref_size,w,h,500,844)
+    x2,y2=_ref_xy(ref_size,w,h,500,1096)
     c.line(x1,y1,x2,y2)
-    xb1,yb=_ref_xy(ref_size,w,h,86,1084)
-    xb2,_=_ref_xy(ref_size,w,h,500,1084)
+    xb1,yb=_ref_xy(ref_size,w,h,86,1096)
+    xb2,_=_ref_xy(ref_size,w,h,500,1096)
     c.line(xb1,yb,xb2,yb)
+    sx1,sy1=_ref_xy(ref_size,w,h,500,1136)
+    sx2,sy2=_ref_xy(ref_size,w,h,500,1394)
+    c.line(sx1,sy1,sx2,sy2)
+    sxb1,syb=_ref_xy(ref_size,w,h,86,1394)
+    sxb2,_=_ref_xy(ref_size,w,h,500,1394)
+    c.line(sxb1,syb,sxb2,syb)
     c.restoreState()
 
-    # Dynamic title: same visual family as Senin Yolun.
-    synergy_title=f"{data['sun_sign']} + {data['asc_sign']} Sinerjisi"
-    tx,ty=_ref_xy(ref_size,w,h,283,1167)
+    synergy_title=f"{sun_sign} + {asc_sign} Sinerjisi"
+    tx,ty=_ref_xy(ref_size,w,h,283,1168)
     _draw_centred_fit(c,synergy_title,tx,ty,405/ref_size[0]*w,
-                      "GMSerifBold",16.2,11.0,PALE_GOLD)
+                      "GMSerifBold",16.0,11.0,PALE_GOLD)
 
     syn=data.get("synergy_text","")
     if isinstance(syn,list): syn=" ".join(syn)
     x,y=_ref_xy(ref_size,w,h,76,1218)
-    _fit_text(c,syn,x,y,402/ref_size[0]*w,font="GMSerifItalic",size=13.0,leading=18.3,max_lines=8,color=PALE_GOLD)
+    _fit_text(c,syn,x,y,398/ref_size[0]*w,font="GMSerifItalic",size=13.1,leading=18.2,max_lines=8,color=PALE_GOLD)
 
-    # Payload motto with split sign colors. If a comma exists, keep the left clause in
-    # the Sun-sign color and the rest in the Ascendant-sign color.
     motto=str(data.get("motto","") or "").strip()
     if motto:
         mx,my=_ref_xy(ref_size,w,h,512,1478)
@@ -773,12 +826,12 @@ def _page1(c,data,w,h):
             left=f"{left.strip()}, "
             right=right.strip()
             _draw_segmented_centered_text(c,left,right,mx,my,
-                                          _sign_color(data.get("sun_sign")),
-                                          _sign_color(data.get("asc_sign")),
-                                          font="GMSerifBold",size=10.6)
+                                          _sign_color(sun_sign),
+                                          _sign_color(asc_sign),
+                                          font="GMSerifBold",size=10.4)
         else:
             _draw_centred_fit(c,motto,mx,my,620/ref_size[0]*w,
-                              "GMSerifBold",10.6,7.2,PALE_GOLD)
+                              "GMSerifBold",10.4,7.2,PALE_GOLD)
 
     _draw_page_number(c,ref_size,w,h,1)
 
