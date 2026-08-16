@@ -54,6 +54,19 @@ MUTED = HexColor("#9c8d6f")
 BLUE = HexColor("#2e9ee6")
 ORANGE = HexColor("#f5782d")
 
+SIGN_TO_ELEMENT = {
+    "Koç":"Ateş","Aslan":"Ateş","Yay":"Ateş",
+    "Boğa":"Toprak","Başak":"Toprak","Oğlak":"Toprak",
+    "İkizler":"Hava","Terazi":"Hava","Kova":"Hava",
+    "Yengeç":"Su","Akrep":"Su","Balık":"Su",
+}
+SIGN_THEME_COLOR = {
+    "Ateş": HexColor("#ff8412"),
+    "Toprak": HexColor("#c5dd1c"),
+    "Hava": HexColor("#cde2ee"),
+    "Su": HexColor("#96d8ff"),
+}
+
 
 def _find_font() -> tuple[str, str, str]:
     candidates = [
@@ -663,60 +676,111 @@ def _draw_premium_zodiac_medallion(c: canvas.Canvas, sign: str, x: float, y: flo
     c.drawImage(_zodiac_img(sign),x-sz/2,y-sz/2,sz,sz,mask='auto')
     c.restoreState()
 
+def _sign_color(sign: str):
+    element=SIGN_TO_ELEMENT.get(str(sign or "").strip(), "Ateş")
+    return SIGN_THEME_COLOR[element]
+
+
+def _draw_segmented_centered_text(c: canvas.Canvas, left_text: str, right_text: str,
+                                  x: float, y: float, left_color, right_color,
+                                  font: str="GMSerifBold", size: float=10.4) -> None:
+    c.setFont(font,size)
+    left_w=pdfmetrics.stringWidth(left_text,font,size)
+    right_w=pdfmetrics.stringWidth(right_text,font,size)
+    total=left_w+right_w
+    start=x-total/2.0
+    c.setFillColor(left_color)
+    c.drawString(start,y,left_text)
+    c.setFillColor(right_color)
+    c.drawString(start+left_w,y,right_text)
+
+
+def _draw_page_number(c: canvas.Canvas, ref_size: tuple[int,int], w: float, h: float, number: int) -> None:
+    # Replace the baked sample page number with a smaller live one, same on all pages.
+    _ref_box(c,ref_size,w,h,930,34,995,85,fill=Color(.008,.014,.016,alpha=.64),radius=3)
+    x,y=_ref_xy(ref_size,w,h,963,64)
+    c.setFillColor(PALE_GOLD)
+    c.setFont("GMSerifBold",10.9)
+    c.drawCentredString(x,y,f"{int(number):02d}")
+
+
 def _page1(c,data,w,h):
     """Page 1: canonical reference is the page; renderer overlays live text only."""
     prof=data["profile"]
     ref_size=(1024,1535)
     _draw_reference_page(c,PAGE1_REFERENCE,w,h)
 
-    # Veil only baked sample text. The premium frame, texture and composition stay untouched.
-    # Alpha is intentionally below 1.0 so these areas are never opaque black panels.
-    overlay=Color(.008,.014,.016,alpha=.76)
-    for box in [
-        (292,326,520,603),     # birth-data values
-        (62,833,505,1099),     # Senin Yolun body
-        (62,1134,505,1188),    # dynamic synergy title
-        (62,1191,505,1394),    # synergy body
-        (188,1450,846,1493),   # motto/footer
-    ]:
-        _ref_box(c,ref_size,w,h,*box,fill=overlay,radius=2)
+    # Veil only baked sample text. Keep borders/textures visible while fully hiding the
+    # old example copy, so no black blotches remain behind the live text.
+    value_overlay=Color(.008,.014,.016,alpha=.72)
+    body_overlay=Color(.008,.014,.016,alpha=.84)
+    _ref_box(c,ref_size,w,h,300,334,498,594,fill=value_overlay,radius=2)
+    _ref_box(c,ref_size,w,h,78,846,492,1084,fill=body_overlay,radius=2)
+    _ref_box(c,ref_size,w,h,78,1141,492,1183,fill=body_overlay,radius=2)
+    _ref_box(c,ref_size,w,h,78,1198,492,1382,fill=body_overlay,radius=2)
+    _ref_box(c,ref_size,w,h,196,1456,836,1490,fill=Color(.008,.014,.016,alpha=.54),radius=2)
 
-    # Birth data - only live values are added; labels remain canonical artwork.
+    # Birth data values centred inside the right column so the rows align cleanly.
     values=[
         _human_date_tr(prof["birth_date"]),
         str(prof["birth_time"]),
         str(prof["birth_place"]),
         _human_date_tr(prof["report_date"]),
     ]
-    value_x,value_ys=310,[361,431,501,568]
+    value_width=360/ref_size[0]*w
+    value_x=735
+    value_ys=[356,427,498,569]
     for value,yy in zip(values,value_ys):
         x,y=_ref_xy(ref_size,w,h,value_x,yy)
-        c.setFillColor(PALE_GOLD); c.setFont("GMSerif",13.3)
-        c.drawString(x,y,value)
+        _draw_centred_fit(c,value,x,y,value_width,"GMSerif",13.5,10.8,PALE_GOLD)
 
-    # Senin Yolun
+    # Senin Yolun body: italic, clean, and same gold tone as the birth-data values.
     st=data.get("senin_yolun","")
     if isinstance(st,list): st=" ".join(st)
-    x,y=_ref_xy(ref_size,w,h,65,858)
-    _fit_text(c,st,x,y,415/ref_size[0]*w,font="GMSerif",size=13.0,leading=18.0,max_lines=10,color=INK)
+    x,y=_ref_xy(ref_size,w,h,76,872)
+    _fit_text(c,st,x,y,402/ref_size[0]*w,font="GMSerifItalic",size=13.0,leading=18.3,max_lines=10,color=PALE_GOLD)
 
-    # Required dynamic title: <Güneş> + <Yükselen> Sinerjisi
+    # Repair the live panel edge so the right/bottom frame stays visually intact.
+    c.saveState()
+    c.setStrokeColor(Color(.85,.65,.20,alpha=.88))
+    c.setLineWidth(0.8)
+    x1,y1=_ref_xy(ref_size,w,h,500,845)
+    x2,y2=_ref_xy(ref_size,w,h,500,1084)
+    c.line(x1,y1,x2,y2)
+    xb1,yb=_ref_xy(ref_size,w,h,86,1084)
+    xb2,_=_ref_xy(ref_size,w,h,500,1084)
+    c.line(xb1,yb,xb2,yb)
+    c.restoreState()
+
+    # Dynamic title: same visual family as Senin Yolun.
     synergy_title=f"{data['sun_sign']} + {data['asc_sign']} Sinerjisi"
-    tx,ty=_ref_xy(ref_size,w,h,283,1169)
+    tx,ty=_ref_xy(ref_size,w,h,283,1167)
     _draw_centred_fit(c,synergy_title,tx,ty,405/ref_size[0]*w,
-                      "GMSerifBold",16.0,11.0,GOLD)
+                      "GMSerifBold",16.2,11.0,PALE_GOLD)
 
     syn=data.get("synergy_text","")
     if isinstance(syn,list): syn=" ".join(syn)
-    x,y=_ref_xy(ref_size,w,h,65,1217)
-    _fit_text(c,syn,x,y,415/ref_size[0]*w,font="GMSerifItalic",size=12.6,leading=18.5,max_lines=8,color=INK)
+    x,y=_ref_xy(ref_size,w,h,76,1218)
+    _fit_text(c,syn,x,y,402/ref_size[0]*w,font="GMSerifItalic",size=13.0,leading=18.3,max_lines=8,color=PALE_GOLD)
 
-    # Payload motto - never substituted with canned copy.
-    motto=str(data.get("motto","") or "")
+    # Payload motto with split sign colors. If a comma exists, keep the left clause in
+    # the Sun-sign color and the rest in the Ascendant-sign color.
+    motto=str(data.get("motto","") or "").strip()
     if motto:
-        x,y=_ref_xy(ref_size,w,h,512,1478)
-        _draw_centred_fit(c,motto,x,y,620/ref_size[0]*w,
-                          "GMSerifBold",10.4,7.2,PALE_GOLD)
+        mx,my=_ref_xy(ref_size,w,h,512,1478)
+        if "," in motto:
+            left,right=motto.split(",",1)
+            left=f"{left.strip()}, "
+            right=right.strip()
+            _draw_segmented_centered_text(c,left,right,mx,my,
+                                          _sign_color(data.get("sun_sign")),
+                                          _sign_color(data.get("asc_sign")),
+                                          font="GMSerifBold",size=10.6)
+        else:
+            _draw_centred_fit(c,motto,mx,my,620/ref_size[0]*w,
+                              "GMSerifBold",10.6,7.2,PALE_GOLD)
+
+    _draw_page_number(c,ref_size,w,h,1)
 
 
 def _polar(lon,cx,cy,r):
@@ -785,15 +849,19 @@ def _badge(c,p,x,y,sz=54,label_side="right"):
 
 def _page2(c,data,w,h):
     """Page 2: use the locked premium page as-is; do not reconstruct it."""
+    ref_size=(1024,1535)
     _draw_reference_page(c,PAGE2_REFERENCE,w,h)
+    _draw_page_number(c,ref_size,w,h,2)
 
 
 def _page3(c,data,w,h) -> None:
     """Page 3: full-bleed canonical page plus verified dynamic element data."""
+    ref_size=(1024,1535)
     with tempfile.TemporaryDirectory(prefix="gmv17_page3_") as td:
         png=Path(td)/"page3_live.png"
         render_elements_report(data,str(png))
         c.drawImage(ImageReader(str(png)),0,0,w,h,mask='auto')
+    _draw_page_number(c,ref_size,w,h,3)
 
 
 def render_pdf(data: dict[str,Any], out_path: str) -> None:
