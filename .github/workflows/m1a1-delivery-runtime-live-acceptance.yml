@@ -110,7 +110,7 @@ jobs:
           assert x['ok'] is False and x['code']=='MARKDOWN_ESCAPE'
           PY
 
-      - name: Real OpenAI strict structured-output binding gate
+      - name: Real Groq strict structured-output binding gate
         shell: bash
         run: |
           set -euo pipefail
@@ -120,7 +120,9 @@ jobs:
           import json
           x=json.load(open('/tmp/model-out.json',encoding='utf-8'))
           assert x['ok'] is True
-          assert x['model_binding']=='openai_responses_json_schema_strict'
+          assert x['provider']=='groq'
+          assert x['model']=='openai/gpt-oss-120b'
+          assert x['model_binding']=='groq_responses_json_schema_strict'
           assert x['contract']['render_state']=='blocked_until_m1a3'
           raw=json.dumps(x,ensure_ascii=False)
           assert '> ##' not in raw and 'raw_markdown' not in raw and 'rendered_section' not in raw
