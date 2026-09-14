@@ -17,13 +17,24 @@ jobs:
     steps:
       - name: Checkout candidate
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Verify exact candidate head
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED='${{ github.event.pull_request.head.sha || github.sha }}'
+          ACTUAL="$(git rev-parse HEAD)"
+          test "$ACTUAL" = "$EXPECTED"
 
       - name: Local M1A-2 regression and falsification suite
         working-directory: delivery_runtime
         shell: bash
         run: npm test
 
-      - name: Wait for production health to reach M1A-2
+      - name: Wait for production health to reach M1A-2 and prove source provenance
         shell: bash
         run: |
           set -euo pipefail
@@ -40,9 +51,9 @@ jobs:
             sleep 5
           done
           python3 - <<'PY'
-          import json
+          import hashlib, json, subprocess
           x=json.load(open('/tmp/health.json', encoding='utf-8'))
-          assert x == {
+          expected = {
             'ok': True,
             'service': 'grandmastrolog-delivery-runtime',
             'stage': 'M1A-2',
@@ -54,6 +65,40 @@ jobs:
             'delivery_validator_enabled': False,
             'next_stage': 'M1A-3'
           }
+          for k,v in expected.items():
+            assert x.get(k) == v, (k, x.get(k), v)
+          files = [
+            '.github/workflows/m1a1-delivery-runtime-live-acceptance.yml',
+            'delivery_runtime/README.md',
+            'delivery_runtime/api/delivery.js',
+            'delivery_runtime/api/health.js',
+            'delivery_runtime/api/model-natal.js',
+            'delivery_runtime/api/validate-natal.js',
+            'delivery_runtime/contracts/gm-natal-semantic-v1.schema.json',
+            'delivery_runtime/lib/foundation.js',
+            'delivery_runtime/lib/groq-binding.js',
+            'delivery_runtime/lib/model-binding.js',
+            'delivery_runtime/lib/natal-contract.js',
+            'delivery_runtime/lib/schema-runtime.js',
+            'delivery_runtime/package.json',
+            'delivery_runtime/tests/api.test.js',
+            'delivery_runtime/tests/foundation.test.js',
+            'delivery_runtime/tests/groq-binding.test.js',
+            'delivery_runtime/tests/helpers.js',
+            'delivery_runtime/tests/model-binding.test.js',
+            'delivery_runtime/tests/natal-contract.test.js',
+            'delivery_runtime/vercel.json'
+          ]
+          local = {
+            p: subprocess.check_output(['git','hash-object',p], text=True).strip()
+            for p in files
+          }
+          canonical = ''.join(f'{p}={local[p]}\n' for p in sorted(local))
+          fingerprint = hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+          provenance = x.get('source_provenance') or {}
+          assert provenance.get('algorithm') == 'git-blob-sha1-manifest-v1'
+          assert provenance.get('files') == local
+          assert provenance.get('fingerprint') == fingerprint
           PY
 
       - name: Build independent canonical probe fixtures
@@ -124,7 +169,7 @@ jobs:
             python3 - <<'PY'
           import json
           x=json.load(open('/tmp/model-out.json',encoding='utf-8'))
-          safe={k:x.get(k) for k in ('code','upstream_provider','upstream_status','path') if k in x}
+          safe={k:x.get(k) for k in ('code','upstream_provider','upstream_status','path','expected_model') if k in x}
           print('MODEL_BINDING_DIAGNOSTIC='+json.dumps(safe,ensure_ascii=False,sort_keys=True))
           PY
             exit 1
