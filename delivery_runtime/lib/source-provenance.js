@@ -1,7 +1,9 @@
 'use strict';
 
-// Only files physically shipped in the Vercel M1A-3 runtime are represented
-// here. Tests, workflow files and repository-only lock documents are excluded.
+// Candidate source authority for the M1A-3 production surface. The four
+// canonical Element assets remain fingerprinted by their accepted Git blobs;
+// production exposes those exact bytes through immutable external rewrites
+// pinned to the accepted M1A-2/baseline commit.
 const FILES = Object.freeze({
   'delivery_runtime/api/delivery.js': 'f5ecef0cea45c9687381580f397702c4612d6b0f',
   'delivery_runtime/api/health.js': '536e3061a23bab293aa9ebf5cf2cb2b41ab2b772',
@@ -21,16 +23,26 @@ const FILES = Object.freeze({
   'delivery_runtime/public/elements/hava.png': '303fb8bbf897007c9d942ed6ae4882078de2ccbe',
   'delivery_runtime/public/elements/su.png': 'dc421441b5b82faf8e599ab20b717dc50e22c296',
   'delivery_runtime/public/elements/toprak.png': '8a64f0f2470b43b92bd33e0a506a65cfbc60a029',
-  'delivery_runtime/vercel.json': 'ce01913795915116f2803de4b18dc7f95c285e1b'
+  'delivery_runtime/vercel.json': '5d94c5854a749191f893e713cefbf77a0b41cfcc'
 });
 
-const FINGERPRINT = 'a16f941fbf64701a916c2f3da09a2ce56451f476e39ff7529e632a456cdb5398';
+const FINGERPRINT = 'b12980615e720e1bbf97e00b09a3a3a37830f90cbe356f527edfb2b85335581b';
+const CANONICAL_ASSET_SOURCE_COMMIT = 'aacc1eb42034bcc44732aeab9e17be2f199e0432';
+const CANONICAL_ASSET_SHA256 = Object.freeze({
+  ates: '1f61fa6bb6fd3432a508e310201b70ad7b32966db9253baa6656a9eb33538468',
+  hava: 'abb47fdda41cb72bf1dfc0fa819ee6bf971646326bbed171b7208d7367d5205e',
+  su: '655e73b56475592cf2c14787fecefc64aa9f2c9e77bcfda745d76ba247c29619',
+  toprak: 'b398703724d072b4cd53350eed641278c5a9058cdd93dbe28c828c51db1c68a0'
+});
 
 function sourceProvenance() {
   return {
     algorithm: 'git-blob-sha1-manifest-v1',
     fingerprint: FINGERPRINT,
-    files: { ...FILES }
+    files: { ...FILES },
+    canonical_asset_transport: 'pinned_external_rewrite',
+    canonical_asset_source_commit: CANONICAL_ASSET_SOURCE_COMMIT,
+    canonical_asset_sha256: { ...CANONICAL_ASSET_SHA256 }
   };
 }
 

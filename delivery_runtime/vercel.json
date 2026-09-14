@@ -8,6 +8,24 @@
       "maxDuration": 15
     }
   },
+  "rewrites": [
+    {
+      "source": "/elements/ates.png",
+      "destination": "https://raw.githubusercontent.com/simsekftsm/grandmastrolog-api/aacc1eb42034bcc44732aeab9e17be2f199e0432/report_runtime/assets/elements/ates.png"
+    },
+    {
+      "source": "/elements/hava.png",
+      "destination": "https://raw.githubusercontent.com/simsekftsm/grandmastrolog-api/aacc1eb42034bcc44732aeab9e17be2f199e0432/report_runtime/assets/elements/hava.png"
+    },
+    {
+      "source": "/elements/su.png",
+      "destination": "https://raw.githubusercontent.com/simsekftsm/grandmastrolog-api/aacc1eb42034bcc44732aeab9e17be2f199e0432/report_runtime/assets/elements/su.png"
+    },
+    {
+      "source": "/elements/toprak.png",
+      "destination": "https://raw.githubusercontent.com/simsekftsm/grandmastrolog-api/aacc1eb42034bcc44732aeab9e17be2f199e0432/report_runtime/assets/elements/toprak.png"
+    }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
