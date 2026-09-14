@@ -41,12 +41,15 @@ test('validate-natal rejects method boundary', async () => {
   assert.equal(res.statusCode, 405);
 });
 
-test('model-natal fails closed when OpenAI secret is absent', async () => {
-  const old = process.env.OPENAI_API_KEY;
-  delete process.env.OPENAI_API_KEY;
+test('model-natal fails closed when Groq secret is absent even if an OpenAI secret exists', async () => {
+  const oldGroq = process.env.GROQ_API_KEY;
+  const oldOpenAI = process.env.OPENAI_API_KEY;
+  delete process.env.GROQ_API_KEY;
+  process.env.OPENAI_API_KEY = 'must-not-be-used';
   const res = fakeResponse();
   await modelNatal({ method:'POST', body: bindingInput() }, res);
   assert.equal(res.statusCode, 503);
   assert.equal(res.body.code, 'RUNTIME_SECRET_OR_MODEL_BINDING_UNAVAILABLE');
-  if (old !== undefined) process.env.OPENAI_API_KEY = old;
+  if (oldGroq !== undefined) process.env.GROQ_API_KEY = oldGroq; else delete process.env.GROQ_API_KEY;
+  if (oldOpenAI !== undefined) process.env.OPENAI_API_KEY = oldOpenAI; else delete process.env.OPENAI_API_KEY;
 });
