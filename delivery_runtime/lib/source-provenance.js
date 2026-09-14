@@ -14,7 +14,7 @@ const FILES = Object.freeze({
   'delivery_runtime/lib/groq-binding.js': '88c2b59f6488ff9e35843df7ae8f9c2e6f7a8e45',
   'delivery_runtime/lib/model-binding.js': '92be6bb132fb607315b3946e4bdc130fbcae527b',
   'delivery_runtime/lib/natal-contract.js': '5f08db4201bed7d45e5ebc903c289e0b972dc25f',
-  'delivery_runtime/lib/natal-renderer.js': 'a1c17d51f8383ab43f2672e53fbe6c7f515e5544',
+  'delivery_runtime/lib/natal-renderer.js': '633308e9d32ae66456426208fe1b92da69b8934b',
   'delivery_runtime/lib/schema-runtime.js': '83aec261b4f9393c77f62210fd905b4abbca733f',
   'delivery_runtime/package.json': '4806bdc6dc199381660b549475e5f36b8aecd51f',
   'delivery_runtime/public/elements/ates.png': 'd8e4d500586a24541955a8523cc3fbda68987825',
@@ -24,7 +24,7 @@ const FILES = Object.freeze({
   'delivery_runtime/vercel.json': 'ce01913795915116f2803de4b18dc7f95c285e1b'
 });
 
-const FINGERPRINT = '2b2fd953fa8be801eb942deac79c5fa07128701bd9d81052a1e4ae1aa73267b3';
+const FINGERPRINT = 'a16f941fbf64701a916c2f3da09a2ce56451f476e39ff7529e632a456cdb5398';
 
 function sourceProvenance() {
   return {

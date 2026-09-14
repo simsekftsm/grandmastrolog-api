@@ -252,6 +252,16 @@ function assertCanonicalPostconditions(result, payload) {
   const ret = text.indexOf(RETURN_TO_USER_INTENT);
   if (!(first >= 0 && second > first && ret > second)) fail('RENDER_POSTCONDITION_FAILED', 'Calibration/return order is invalid.');
 
+  const paragraphBlocks = [];
+  if (payload.prelude.included) paragraphBlocks.push(payload.prelude.body_paragraphs);
+  for (const section of payload.pre_seal_sections) if (section.included) paragraphBlocks.push(section.body_paragraphs);
+  for (const section of payload.main_life_sections) if (section.included) paragraphBlocks.push(section.body_paragraphs);
+  for (const contribution of payload.special_contributions) paragraphBlocks.push(contribution.body_paragraphs);
+  for (const paragraphs of paragraphBlocks) {
+    const expectedBlock = paragraphs.join('\n\n');
+    if (!expectedBlock || !text.includes(expectedBlock)) fail('SEMANTIC_PRESERVATION_FAILED', 'Body paragraph boundaries were changed, dropped, merged or reordered.');
+  }
+
   const semanticSequence = [];
   if (payload.prelude.included) semanticSequence.push(...payload.prelude.body_paragraphs);
   for (const section of payload.pre_seal_sections) if (section.included) semanticSequence.push(...section.body_paragraphs);
