@@ -19,23 +19,25 @@ function fakeResponse() {
   };
 }
 
-test('foundation status is explicit and fail-closed', () => {
+test('M1A-2 status preserves M1A-1 fail-closed invariants', () => {
   const body = statusPayload();
   assert.equal(body.ok, true);
-  assert.equal(body.stage, 'M1A-1');
+  assert.equal(body.stage, 'M1A-2');
   assert.equal(body.mode, 'fail-closed');
   assert.equal(body.delivery_boundary, 'present');
   assert.equal(body.raw_delivery_allowed, false);
-  assert.equal(body.structured_contract_enabled, false);
+  assert.equal(body.structured_contract_enabled, true);
   assert.equal(body.canonical_renderer_enabled, false);
   assert.equal(body.delivery_validator_enabled, false);
+  assert.equal(body.next_stage, 'M1A-3');
 });
 
 test('blocked payload never authorizes raw delivery', () => {
   const body = blockedPayload();
   assert.equal(body.ok, false);
-  assert.equal(body.code, 'M1A_1_FOUNDATION_ONLY');
+  assert.equal(body.code, 'M1A_2_RENDERER_NOT_AVAILABLE');
   assert.equal(body.raw_delivery_allowed, false);
+  assert.equal(body.structured_contract_enabled, true);
 });
 
 test('health GET returns 200 with no-store headers', async () => {
@@ -59,7 +61,7 @@ test('delivery POST fails closed and does not echo raw model output', async () =
   const res = fakeResponse();
   await delivery({ method: 'POST', body: { raw_output: raw } }, res);
   assert.equal(res.statusCode, 503);
-  assert.equal(res.body.code, 'M1A_1_FOUNDATION_ONLY');
+  assert.equal(res.body.code, 'M1A_2_RENDERER_NOT_AVAILABLE');
   assert.equal(res.body.raw_delivery_allowed, false);
   assert.equal(JSON.stringify(res.body).includes(raw), false);
   assert.equal(res.getHeader('cache-control'), 'no-store');

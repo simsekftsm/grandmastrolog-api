@@ -10,8 +10,7 @@ module.exports = async function delivery(req, res) {
     return res.status(405).json({ ok: false, code: 'METHOD_NOT_ALLOWED' });
   }
 
-  // M1A-1 establishes the mandatory delivery boundary only.
-  // It deliberately forwards no model text. M1A-2+ will add the
-  // structured contract, deterministic renderer, and validation path.
+  // M1A-2 can create and validate structured semantic Natal data, but no
+  // user-visible rendering is authorized until M1A-3 and M1A-4 exist.
   return res.status(503).json(blockedPayload());
 };

@@ -1,9 +1,10 @@
-name: M1A-1 Delivery Runtime Live Acceptance
+name: M1A-2 Structured Natal Live Acceptance
 
 on:
   push:
     branches:
       - m1a-1-delivery-runtime-foundation
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -12,54 +13,151 @@ permissions:
 jobs:
   live-acceptance:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     env:
       BASE_URL: https://grandmastrolog-delivery-runtime.vercel.app
+      EXISTING_API_URL: https://grandmastrolog-api-production.up.railway.app
     steps:
-      - name: Health gate
+      - name: Wait for production health to reach M1A-2
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS "$BASE_URL/api/health" -o /tmp/health.json
+          for i in $(seq 1 36); do
+            if curl -fsS "$BASE_URL/api/health" -o /tmp/health.json; then
+              if python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/health.json', encoding='utf-8'))
+          raise SystemExit(0 if x.get('stage') == 'M1A-2' else 1)
+          PY
+              then break; fi
+            fi
+            test "$i" != '36'
+            sleep 5
+          done
           python3 - <<'PY'
           import json
-          with open('/tmp/health.json', encoding='utf-8') as f:
-              x = json.load(f)
-          assert x['ok'] is True
-          assert x['stage'] == 'M1A-1'
-          assert x['mode'] == 'fail-closed'
-          assert x['delivery_boundary'] == 'present'
-          assert x['raw_delivery_allowed'] is False
-          assert x['structured_contract_enabled'] is False
-          assert x['canonical_renderer_enabled'] is False
-          assert x['delivery_validator_enabled'] is False
+          x=json.load(open('/tmp/health.json', encoding='utf-8'))
+          assert x == {
+            'ok': True,
+            'service': 'grandmastrolog-delivery-runtime',
+            'stage': 'M1A-2',
+            'mode': 'fail-closed',
+            'delivery_boundary': 'present',
+            'raw_delivery_allowed': False,
+            'structured_contract_enabled': True,
+            'canonical_renderer_enabled': False,
+            'delivery_validator_enabled': False,
+            'next_stage': 'M1A-3'
+          }
           PY
 
-      - name: Real POST must fail closed and never echo model output
+      - name: Build independent canonical probe fixtures
         shell: bash
         run: |
           set -euo pipefail
-          RAW='# • DOĞUM HARİTAN •\n> malformed output'
-          STATUS=$(curl -sS -o /tmp/delivery.json -w '%{http_code}' \
-            -X POST "$BASE_URL/api/delivery" \
-            -H 'content-type: application/json' \
-            --data-binary '{"raw_output":"# • DOĞUM HARİTAN •\\n> malformed output"}')
+          python3 - <<'PY'
+          import json
+          placements=['sun','moon','ascendant','mercury','venus','mars','jupiter','saturn','uranus','neptune','pluto','north_node','mc']
+          signs=['Balık','Başak','Aslan','Balık','Kova','Oğlak','Yengeç','Oğlak','Oğlak','Oğlak','Akrep','Kova','Boğa']
+          pre=['profilin','haritanin_ozu','element_dengen','sinerji','senin_yolun']
+          main=['para_kariyer','iliskiler','aile','karmalar']
+          special=['hellenistic','jyotish','esoteric','sade_sati','rahu_ketu','retrogrades','lilith','chiron','vertex','part_of_fortune','fixed_stars']
+          evidence=[]
+          for i,p in enumerate(placements):
+              evidence.append({'evidence_id':f'ev_{p}','source_ref':f'astro://verified/{p}','kind':'placement','subject_id':p,'semantic_value':f'{p} verified placement','sign':signs[i],'degree':f'{10+i}°00′','house':'' if p in ('ascendant','mc') else f'{i%12+1}. ev','retrograde':p in ('pluto','north_node'),'verification_state':'verified'})
+          for s in ['ayin_gokyuzu_haritasi',*pre,*main,*special]:
+              evidence.append({'evidence_id':f'ev_{s}','source_ref':f'astro://verified/indicator/{s}','kind':'indicator','subject_id':s,'semantic_value':f'{s} için doğrulanmış gösterge','sign':'','degree':'','house':'','retrograde':False,'verification_state':'verified'})
+          availability={k:False for k in ['ayin_gokyuzu_haritasi','element_dengen','sinerji','senin_yolun',*special]}
+          binding={'request_id':'gha-live-1','semantic_input':'Doğrulanmış verilerden ilk Natal semantik sözleşmesini üret.','availability':availability,'verified_evidence':evidence}
+          byid={x['evidence_id']:x for x in evidence}
+          pp=[]
+          for p in placements:
+              e=byid[f'ev_{p}']; pp.append({'point_id':p,'sign':e['sign'],'degree':e['degree'],'house':e['house'],'retrograde':e['retrograde'],'evidence_id':e['evidence_id']})
+          required={'profilin','haritanin_ozu','para_kariyer','iliskiler','aile','karmalar'}
+          def sec(s):
+              inc=s in required
+              return {'section_id':s,'included':inc,'body_paragraphs':[f'{s} için düz semantik içerik.'] if inc else [],'hat_evidence_refs':[f'ev_{s}'] if inc else []}
+          payload={'contract_version':'gm.natal.v1','response_id':'initial_natal','opening_id':'natal_first_pass','prelude':{'section_id':'ayin_gokyuzu_haritasi','included':False,'body_paragraphs':[],'hat_evidence_refs':[]},'natal_placements':pp,'pre_seal_sections':[sec(x) for x in pre],'personal_seal':{'seal_id':'sun_asc_personal_seal','included':True,'motto':'Duyarlılığını görünür bir iradeyle taşırsın.','evidence_refs':['ev_sun','ev_ascendant']},'main_life_sections':[sec(x) for x in main],'first_calibration':{'calibration_id':'main_life_areas','required':True},'special_contributions':[],'second_calibration':{'calibration_id':'general_natal','required':True},'return_identity':'return_to_user_intent','validation_metadata':{'schema_id':'gm_natal_semantic_v1','schema_version':'1.0.0','evidence_policy':'verified_only','visible_markup_owner':'m1a3_deterministic_renderer'}}
+          json.dump({'binding_input':binding,'semantic_payload':payload},open('/tmp/valid.json','w',encoding='utf-8'),ensure_ascii=False)
+          json.dump(binding,open('/tmp/model.json','w',encoding='utf-8'),ensure_ascii=False)
+          bad=json.loads(json.dumps(payload)); bad['pre_seal_sections'][0]['body_paragraphs']=['> *Hat: escape*']
+          json.dump({'binding_input':binding,'semantic_payload':bad},open('/tmp/bad.json','w',encoding='utf-8'),ensure_ascii=False)
+          PY
+
+      - name: Executable schema and semantic validator live gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS=$(curl -sS -o /tmp/valid-out.json -w '%{http_code}' -X POST "$BASE_URL/api/validate-natal" -H 'content-type: application/json' --data-binary @/tmp/valid.json)
+          test "$STATUS" = '200'
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/valid-out.json',encoding='utf-8'))
+          assert x['ok'] is True
+          c=x['contract']
+          assert c['contract_version']=='gm.natal.v1'
+          assert c['schema_id']=='gm_natal_semantic_v1'
+          assert c['validator_id']=='gm_natal_semantic_validator_v1'
+          assert c['render_state']=='blocked_until_m1a3'
+          assert c['canonical_policy']['iliskiler']['section_trim_applied'] is True
+          assert c['canonical_policy']['aile']['section_trim_applied'] is True
+          PY
+          STATUS=$(curl -sS -o /tmp/bad-out.json -w '%{http_code}' -X POST "$BASE_URL/api/validate-natal" -H 'content-type: application/json' --data-binary @/tmp/bad.json)
+          test "$STATUS" = '422'
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/bad-out.json',encoding='utf-8'))
+          assert x['ok'] is False and x['code']=='MARKDOWN_ESCAPE'
+          PY
+
+      - name: Real OpenAI strict structured-output binding gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS=$(curl -sS -o /tmp/model-out.json -w '%{http_code}' -X POST "$BASE_URL/api/model-natal" -H 'content-type: application/json' --data-binary @/tmp/model.json)
+          test "$STATUS" = '200'
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/model-out.json',encoding='utf-8'))
+          assert x['ok'] is True
+          assert x['model_binding']=='openai_responses_json_schema_strict'
+          assert x['contract']['render_state']=='blocked_until_m1a3'
+          raw=json.dumps(x,ensure_ascii=False)
+          assert '> ##' not in raw and 'raw_markdown' not in raw and 'rendered_section' not in raw
+          PY
+
+      - name: Delivery remains fail closed and does not echo raw output
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS=$(curl -sS -o /tmp/delivery.json -w '%{http_code}' -X POST "$BASE_URL/api/delivery" -H 'content-type: application/json' --data-binary '{"raw_output":"# • DOĞUM HARİTAN •\\n> malformed output"}')
           test "$STATUS" = '503'
           python3 - <<'PY'
           import json
-          with open('/tmp/delivery.json', encoding='utf-8') as f:
-              x = json.load(f)
+          x=json.load(open('/tmp/delivery.json',encoding='utf-8'))
           assert x['ok'] is False
-          assert x['code'] == 'M1A_1_FOUNDATION_ONLY'
-          assert x['mode'] == 'fail-closed'
+          assert x['code']=='M1A_2_RENDERER_NOT_AVAILABLE'
           assert x['raw_delivery_allowed'] is False
-          raw = '# • DOĞUM HARİTAN •\n> malformed output'
-          assert raw not in json.dumps(x, ensure_ascii=False)
+          assert x['canonical_renderer_enabled'] is False
+          assert x['delivery_validator_enabled'] is False
+          assert 'malformed output' not in json.dumps(x,ensure_ascii=False)
           PY
 
       - name: Method boundary
         shell: bash
         run: |
           set -euo pipefail
-          STATUS=$(curl -sS -o /tmp/get-delivery.json -w '%{http_code}' "$BASE_URL/api/delivery")
-          test "$STATUS" = '405'
+          test "$(curl -sS -o /tmp/a -w '%{http_code}' "$BASE_URL/api/delivery")" = '405'
+          test "$(curl -sS -o /tmp/b -w '%{http_code}' "$BASE_URL/api/validate-natal")" = '405'
+          test "$(curl -sS -o /tmp/c -w '%{http_code}' "$BASE_URL/api/model-natal")" = '405'
+
+      - name: Existing unrelated GrandMastrolog API regression probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "$EXISTING_API_URL/health" -o /tmp/existing-health.json
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/existing-health.json',encoding='utf-8'))
+          assert x.get('ok') is True
+          PY
