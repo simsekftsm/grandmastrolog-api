@@ -14,27 +14,46 @@ jobs:
     env:
       BASE_URL: https://grandmastrolog-delivery-runtime.vercel.app
       EXISTING_API_URL: https://grandmastrolog-api-production.up.railway.app
+      EXPECTED_VERCEL_PROJECT_ID: prj_XhDus3tQsyiLxrPccbQteXLwbB2a
     steps:
       - name: Checkout candidate
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
+          fetch-depth: 2
 
-      - name: Verify exact candidate head
+      - name: Verify exact candidate head and deployment lock authority
         shell: bash
         run: |
           set -euo pipefail
           EXPECTED='${{ github.event.pull_request.head.sha || github.sha }}'
           ACTUAL="$(git rev-parse HEAD)"
           test "$ACTUAL" = "$EXPECTED"
+          test -f .github/m1a2-production-lock.json
+          python3 - <<'PY'
+          import json
+          p='.github/m1a2-production-lock.json'
+          x=json.load(open(p,encoding='utf-8'))
+          required={'deployment_id','project_id','runtime_source_commit','source_fingerprint','source_provenance_blob_sha'}
+          assert set(x)==required
+          assert x['deployment_id'].startswith('dpl_')
+          assert x['project_id']=='prj_XhDus3tQsyiLxrPccbQteXLwbB2a'
+          assert len(x['runtime_source_commit'])==40
+          assert len(x['source_fingerprint'])==64
+          assert len(x['source_provenance_blob_sha'])==40
+          PY
+          RUNTIME_SOURCE="$(python3 -c "import json; print(json.load(open('.github/m1a2-production-lock.json'))['runtime_source_commit'])")"
+          git fetch --no-tags --depth=1 origin "$RUNTIME_SOURCE"
+          mapfile -t CHANGED < <(git diff --name-only "$RUNTIME_SOURCE" HEAD)
+          test "${#CHANGED[@]}" = '1'
+          test "${CHANGED[0]}" = '.github/m1a2-production-lock.json'
 
       - name: Local M1A-2 regression and falsification suite
         working-directory: delivery_runtime
         shell: bash
         run: npm test
 
-      - name: Wait for production health to reach M1A-2 and prove source provenance
+      - name: Production health, immutable deployment and source provenance gate
         shell: bash
         run: |
           set -euo pipefail
@@ -53,6 +72,7 @@ jobs:
           python3 - <<'PY'
           import hashlib, json, subprocess
           x=json.load(open('/tmp/health.json', encoding='utf-8'))
+          lock=json.load(open('.github/m1a2-production-lock.json', encoding='utf-8'))
           expected = {
             'ok': True,
             'service': 'grandmastrolog-delivery-runtime',
@@ -68,8 +88,6 @@ jobs:
           for k,v in expected.items():
             assert x.get(k) == v, (k, x.get(k), v)
           files = [
-            '.github/workflows/m1a1-delivery-runtime-live-acceptance.yml',
-            'delivery_runtime/README.md',
             'delivery_runtime/api/delivery.js',
             'delivery_runtime/api/health.js',
             'delivery_runtime/api/model-natal.js',
@@ -81,24 +99,22 @@ jobs:
             'delivery_runtime/lib/natal-contract.js',
             'delivery_runtime/lib/schema-runtime.js',
             'delivery_runtime/package.json',
-            'delivery_runtime/tests/api.test.js',
-            'delivery_runtime/tests/foundation.test.js',
-            'delivery_runtime/tests/groq-binding.test.js',
-            'delivery_runtime/tests/helpers.js',
-            'delivery_runtime/tests/model-binding.test.js',
-            'delivery_runtime/tests/natal-contract.test.js',
             'delivery_runtime/vercel.json'
           ]
-          local = {
-            p: subprocess.check_output(['git','hash-object',p], text=True).strip()
-            for p in files
-          }
-          canonical = ''.join(f'{p}={local[p]}\n' for p in sorted(local))
-          fingerprint = hashlib.sha256(canonical.encode('utf-8')).hexdigest()
-          provenance = x.get('source_provenance') or {}
+          local={p: subprocess.check_output(['git','hash-object',p],text=True).strip() for p in files}
+          canonical=''.join(f'{p}={local[p]}\n' for p in sorted(local))
+          fingerprint=hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+          provenance=x.get('source_provenance') or {}
+          deployment=x.get('deployment_provenance') or {}
+          provenance_blob=subprocess.check_output(['git','hash-object','delivery_runtime/lib/source-provenance.js'],text=True).strip()
+          assert fingerprint == lock['source_fingerprint']
+          assert provenance_blob == lock['source_provenance_blob_sha']
           assert provenance.get('algorithm') == 'git-blob-sha1-manifest-v1'
           assert provenance.get('files') == local
           assert provenance.get('fingerprint') == fingerprint
+          assert deployment.get('deployment_id') == lock['deployment_id']
+          assert deployment.get('project_id') == lock['project_id']
+          assert deployment.get('environment') == 'production'
           PY
 
       - name: Build independent canonical probe fixtures
