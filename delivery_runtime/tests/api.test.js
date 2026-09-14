@@ -53,3 +53,17 @@ test('model-natal fails closed when Groq secret is absent even if an OpenAI secr
   if (oldGroq !== undefined) process.env.GROQ_API_KEY = oldGroq; else delete process.env.GROQ_API_KEY;
   if (oldOpenAI !== undefined) process.env.OPENAI_API_KEY = oldOpenAI; else delete process.env.OPENAI_API_KEY;
 });
+
+test('model-natal fails closed before upstream call when Groq model override violates freeze', async () => {
+  const oldGroq = process.env.GROQ_API_KEY;
+  const oldModel = process.env.GROQ_MODEL;
+  process.env.GROQ_API_KEY = 'test-secret';
+  process.env.GROQ_MODEL = 'wrong/model';
+  const res = fakeResponse();
+  await modelNatal({ method:'POST', body: bindingInput() }, res);
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.body.code, 'RUNTIME_MODEL_FREEZE_VIOLATION');
+  assert.equal(res.body.expected_model, 'openai/gpt-oss-120b');
+  if (oldGroq !== undefined) process.env.GROQ_API_KEY = oldGroq; else delete process.env.GROQ_API_KEY;
+  if (oldModel !== undefined) process.env.GROQ_MODEL = oldModel; else delete process.env.GROQ_MODEL;
+});
