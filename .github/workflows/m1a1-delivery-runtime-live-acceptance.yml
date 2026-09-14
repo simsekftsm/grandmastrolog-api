@@ -1,0 +1,65 @@
+name: M1A-1 Delivery Runtime Live Acceptance
+
+on:
+  push:
+    branches:
+      - m1a-1-delivery-runtime-foundation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BASE_URL: https://grandmastrolog-delivery-runtime.vercel.app
+    steps:
+      - name: Health gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "$BASE_URL/api/health" -o /tmp/health.json
+          python3 - <<'PY'
+          import json
+          with open('/tmp/health.json', encoding='utf-8') as f:
+              x = json.load(f)
+          assert x['ok'] is True
+          assert x['stage'] == 'M1A-1'
+          assert x['mode'] == 'fail-closed'
+          assert x['delivery_boundary'] == 'present'
+          assert x['raw_delivery_allowed'] is False
+          assert x['structured_contract_enabled'] is False
+          assert x['canonical_renderer_enabled'] is False
+          assert x['delivery_validator_enabled'] is False
+          PY
+
+      - name: Real POST must fail closed and never echo model output
+        shell: bash
+        run: |
+          set -euo pipefail
+          RAW='# • DOĞUM HARİTAN •\n> malformed output'
+          STATUS=$(curl -sS -o /tmp/delivery.json -w '%{http_code}' \
+            -X POST "$BASE_URL/api/delivery" \
+            -H 'content-type: application/json' \
+            --data-binary '{"raw_output":"# • DOĞUM HARİTAN •\\n> malformed output"}')
+          test "$STATUS" = '503'
+          python3 - <<'PY'
+          import json
+          with open('/tmp/delivery.json', encoding='utf-8') as f:
+              x = json.load(f)
+          assert x['ok'] is False
+          assert x['code'] == 'M1A_1_FOUNDATION_ONLY'
+          assert x['mode'] == 'fail-closed'
+          assert x['raw_delivery_allowed'] is False
+          raw = '# • DOĞUM HARİTAN •\n> malformed output'
+          assert raw not in json.dumps(x, ensure_ascii=False)
+          PY
+
+      - name: Method boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS=$(curl -sS -o /tmp/get-delivery.json -w '%{http_code}' "$BASE_URL/api/delivery")
+          test "$STATUS" = '405'
