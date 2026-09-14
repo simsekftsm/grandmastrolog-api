@@ -35,10 +35,18 @@ module.exports = async function modelNatal(req, res) {
   try {
     const { evidenceMap, availability } = validateBindingInput(req.body);
     const apiKey = process.env.GROQ_API_KEY;
-    const model = process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL;
+    const configuredModel = process.env.GROQ_MODEL;
     if (!apiKey) {
       return res.status(503).json({ ok: false, code: 'RUNTIME_SECRET_OR_MODEL_BINDING_UNAVAILABLE' });
     }
+    if (configuredModel && configuredModel !== DEFAULT_GROQ_MODEL) {
+      return res.status(503).json({
+        ok: false,
+        code: 'RUNTIME_MODEL_FREEZE_VIOLATION',
+        expected_model: DEFAULT_GROQ_MODEL
+      });
+    }
+    const model = DEFAULT_GROQ_MODEL;
 
     const response = await fetch(GROQ_RESPONSES_URL, {
       method: 'POST',
@@ -70,10 +78,6 @@ module.exports = async function modelNatal(req, res) {
       return res.status(502).json({ ok: false, code: 'MODEL_STRUCTURED_PARSE_FAIL', upstream_provider: 'groq' });
     }
 
-    // Deterministic contract facts are server-owned. The model supplies semantic
-    // prose/evidence choices; canonical identities, inclusion, placements,
-    // calibration and metadata are rebound from verified server input before the
-    // independent semantic validator can authorize the structured envelope.
     const canonicalPayload = canonicalizeModelPayload(payload, evidenceMap, availability);
     const contract = makeValidatedEnvelope(canonicalPayload, evidenceMap, availability);
     return res.status(200).json({ ok: true, model_binding: MODEL_BINDING, provider: 'groq', model, contract });
