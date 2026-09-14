@@ -1,7 +1,7 @@
 {
   "deployment_id": "dpl_AEFhQbwuSVzEfWt5YchPZrVxFxBi",
   "project_id": "prj_XhDus3tQsyiLxrPccbQteXLwbB2a",
-  "runtime_source_commit": "0bd660d4b9283005b6a735c9033f3a5948234fec",
-  "source_fingerprint": "a16f941fbf64701a916c2f3da09a2ce56451f476e39ff7529e632a456cdb5398",
-  "source_provenance_blob_sha": "ae687f4f813d2b7d3dc8a114d27e2ae683011923"
+  "runtime_source_commit": "acc20bd0ad57581365b9ec2435ba133d5247174b",
+  "source_fingerprint": "b12980615e720e1bbf97e00b09a3a3a37830f90cbe356f527edfb2b85335581b",
+  "source_provenance_blob_sha": "0eb0ac9aa849c52ac00c33340b103972bdc9583f"
 }
