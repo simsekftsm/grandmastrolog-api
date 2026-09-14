@@ -1,0 +1,73 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const health = require('../api/health');
+const delivery = require('../api/delivery');
+const { statusPayload, blockedPayload } = require('../lib/foundation');
+
+function fakeResponse() {
+  const headers = new Map();
+  return {
+    statusCode: 200,
+    body: undefined,
+    setHeader(name, value) { headers.set(name.toLowerCase(), value); },
+    getHeader(name) { return headers.get(name.toLowerCase()); },
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; }
+  };
+}
+
+test('foundation status is explicit and fail-closed', () => {
+  const body = statusPayload();
+  assert.equal(body.ok, true);
+  assert.equal(body.stage, 'M1A-1');
+  assert.equal(body.mode, 'fail-closed');
+  assert.equal(body.delivery_boundary, 'present');
+  assert.equal(body.raw_delivery_allowed, false);
+  assert.equal(body.structured_contract_enabled, false);
+  assert.equal(body.canonical_renderer_enabled, false);
+  assert.equal(body.delivery_validator_enabled, false);
+});
+
+test('blocked payload never authorizes raw delivery', () => {
+  const body = blockedPayload();
+  assert.equal(body.ok, false);
+  assert.equal(body.code, 'M1A_1_FOUNDATION_ONLY');
+  assert.equal(body.raw_delivery_allowed, false);
+});
+
+test('health GET returns 200 with no-store headers', async () => {
+  const res = fakeResponse();
+  await health({ method: 'GET' }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.getHeader('cache-control'), 'no-store');
+  assert.equal(res.getHeader('x-content-type-options'), 'nosniff');
+});
+
+test('health rejects non-GET', async () => {
+  const res = fakeResponse();
+  await health({ method: 'POST' }, res);
+  assert.equal(res.statusCode, 405);
+  assert.equal(res.body.code, 'METHOD_NOT_ALLOWED');
+});
+
+test('delivery POST fails closed and does not echo raw model output', async () => {
+  const raw = '# • DOĞUM HARİTAN •\n> malformed output';
+  const res = fakeResponse();
+  await delivery({ method: 'POST', body: { raw_output: raw } }, res);
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.body.code, 'M1A_1_FOUNDATION_ONLY');
+  assert.equal(res.body.raw_delivery_allowed, false);
+  assert.equal(JSON.stringify(res.body).includes(raw), false);
+  assert.equal(res.getHeader('cache-control'), 'no-store');
+});
+
+test('delivery rejects non-POST', async () => {
+  const res = fakeResponse();
+  await delivery({ method: 'GET' }, res);
+  assert.equal(res.statusCode, 405);
+  assert.equal(res.body.code, 'METHOD_NOT_ALLOWED');
+});

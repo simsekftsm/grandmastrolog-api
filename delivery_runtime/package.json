@@ -1,0 +1,13 @@
+{
+  "name": "grandmastrolog-delivery-runtime",
+  "version": "0.1.0-m1a1",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "npm test"
+  }
+}
