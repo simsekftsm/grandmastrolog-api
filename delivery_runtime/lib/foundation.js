@@ -1,9 +1,9 @@
 'use strict';
 
 const SERVICE = 'grandmastrolog-delivery-runtime';
-const STAGE = 'M1A-1';
+const STAGE = 'M1A-2';
 const MODE = 'fail-closed';
-const FOUNDATION_CODE = 'M1A_1_FOUNDATION_ONLY';
+const FOUNDATION_CODE = 'M1A_2_RENDERER_NOT_AVAILABLE';
 
 function applySecurityHeaders(res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -19,10 +19,10 @@ function statusPayload() {
     mode: MODE,
     delivery_boundary: 'present',
     raw_delivery_allowed: false,
-    structured_contract_enabled: false,
+    structured_contract_enabled: true,
     canonical_renderer_enabled: false,
     delivery_validator_enabled: false,
-    next_stage: 'M1A-2'
+    next_stage: 'M1A-3'
   };
 }
 
@@ -34,7 +34,10 @@ function blockedPayload() {
     code: FOUNDATION_CODE,
     mode: MODE,
     raw_delivery_allowed: false,
-    message: 'Delivery is fail-closed until the structured contract, canonical renderer, and delivery validator are enabled.'
+    structured_contract_enabled: true,
+    canonical_renderer_enabled: false,
+    delivery_validator_enabled: false,
+    message: 'Delivery remains fail-closed until the deterministic canonical renderer and final delivery validator are enabled.'
   };
 }
 
