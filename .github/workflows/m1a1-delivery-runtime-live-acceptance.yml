@@ -18,6 +18,14 @@ jobs:
       BASE_URL: https://grandmastrolog-delivery-runtime.vercel.app
       EXISTING_API_URL: https://grandmastrolog-api-production.up.railway.app
     steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+
+      - name: Local M1A-2 regression and falsification suite
+        working-directory: delivery_runtime
+        shell: bash
+        run: npm test
+
       - name: Wait for production health to reach M1A-2
         shell: bash
         run: |
