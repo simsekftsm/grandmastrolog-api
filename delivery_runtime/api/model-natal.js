@@ -31,8 +31,8 @@ module.exports = async function modelNatal(req, res) {
   try {
     const { evidenceMap, availability } = validateBindingInput(req.body);
     const apiKey = process.env.OPENAI_API_KEY;
-    const model = process.env.OPENAI_MODEL;
-    if (!apiKey || !model) {
+    const model = process.env.OPENAI_MODEL || 'gpt-5.6-sol';
+    if (!apiKey) {
       return res.status(503).json({ ok: false, code: 'RUNTIME_SECRET_OR_MODEL_BINDING_UNAVAILABLE' });
     }
 
