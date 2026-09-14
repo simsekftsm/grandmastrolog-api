@@ -1,24 +1,30 @@
 'use strict';
 
-// Only files that are physically shipped in the Vercel M1A-2 runtime are
-// represented here. Tests, workflow files and repository-only documents are
-// intentionally excluded from production-source provenance.
+// Only files physically shipped in the Vercel M1A-3 runtime are represented
+// here. Tests, workflow files and repository-only lock documents are excluded.
 const FILES = Object.freeze({
-  'delivery_runtime/api/delivery.js': '5edf2f01a5d74297fe3a83f8255ad4c0eefd001f',
+  'delivery_runtime/api/delivery.js': 'f5ecef0cea45c9687381580f397702c4612d6b0f',
   'delivery_runtime/api/health.js': '536e3061a23bab293aa9ebf5cf2cb2b41ab2b772',
   'delivery_runtime/api/model-natal.js': '91de205f4b54b905ebcd963d35299fea341d694e',
+  'delivery_runtime/api/render-natal.js': '886e10c249f570691dbacf6235ac492caddcc521',
   'delivery_runtime/api/validate-natal.js': 'a2ea512c7e1443ba5d7accf50a555902b1ea496b',
   'delivery_runtime/contracts/gm-natal-semantic-v1.schema.json': 'ee6fdd7c5a83aa9b897437987bbabaffddc6fa62',
-  'delivery_runtime/lib/foundation.js': 'e919818e57aad97080366a6dcdf907405b2b77dd',
+  'delivery_runtime/lib/element-visual.js': '79f11584ff1888b7ff511b5cb3a240788969843c',
+  'delivery_runtime/lib/foundation.js': '476c0aa012d21d2c07e5557690a89edded5ff29b',
   'delivery_runtime/lib/groq-binding.js': '88c2b59f6488ff9e35843df7ae8f9c2e6f7a8e45',
   'delivery_runtime/lib/model-binding.js': '92be6bb132fb607315b3946e4bdc130fbcae527b',
   'delivery_runtime/lib/natal-contract.js': '5f08db4201bed7d45e5ebc903c289e0b972dc25f',
+  'delivery_runtime/lib/natal-renderer.js': 'a1c17d51f8383ab43f2672e53fbe6c7f515e5544',
   'delivery_runtime/lib/schema-runtime.js': '83aec261b4f9393c77f62210fd905b4abbca733f',
-  'delivery_runtime/package.json': '4eae5ec46a534e69d761d614704fd8a788abe505',
+  'delivery_runtime/package.json': '4806bdc6dc199381660b549475e5f36b8aecd51f',
+  'delivery_runtime/public/elements/ates.png': 'd8e4d500586a24541955a8523cc3fbda68987825',
+  'delivery_runtime/public/elements/hava.png': '303fb8bbf897007c9d942ed6ae4882078de2ccbe',
+  'delivery_runtime/public/elements/su.png': 'dc421441b5b82faf8e599ab20b717dc50e22c296',
+  'delivery_runtime/public/elements/toprak.png': '8a64f0f2470b43b92bd33e0a506a65cfbc60a029',
   'delivery_runtime/vercel.json': 'ce01913795915116f2803de4b18dc7f95c285e1b'
 });
 
-const FINGERPRINT = 'e57bfe54241a3be61e2c8f9dc3dcb83c15fd3d3449ce28fb53336472528271a9';
+const FINGERPRINT = '2b2fd953fa8be801eb942deac79c5fa07128701bd9d81052a1e4ae1aa73267b3';
 
 function sourceProvenance() {
   return {

@@ -19,25 +19,29 @@ function fakeResponse() {
   };
 }
 
-test('M1A-2 status preserves M1A-1 fail-closed invariants', () => {
+test('M1A-3 status preserves structured contract and enables only canonical renderer', () => {
   const body = statusPayload();
   assert.equal(body.ok, true);
-  assert.equal(body.stage, 'M1A-2');
+  assert.equal(body.stage, 'M1A-3');
   assert.equal(body.mode, 'fail-closed');
   assert.equal(body.delivery_boundary, 'present');
   assert.equal(body.raw_delivery_allowed, false);
   assert.equal(body.structured_contract_enabled, true);
-  assert.equal(body.canonical_renderer_enabled, false);
+  assert.equal(body.canonical_renderer_enabled, true);
   assert.equal(body.delivery_validator_enabled, false);
-  assert.equal(body.next_stage, 'M1A-3');
+  assert.equal(body.final_delivery_authorized, false);
+  assert.equal(body.next_stage, 'M1A-4');
 });
 
-test('blocked payload never authorizes raw delivery', () => {
+test('blocked payload never authorizes raw or final delivery', () => {
   const body = blockedPayload();
   assert.equal(body.ok, false);
-  assert.equal(body.code, 'M1A_2_RENDERER_NOT_AVAILABLE');
+  assert.equal(body.code, 'M1A_3_DELIVERY_VALIDATOR_NOT_AVAILABLE');
   assert.equal(body.raw_delivery_allowed, false);
   assert.equal(body.structured_contract_enabled, true);
+  assert.equal(body.canonical_renderer_enabled, true);
+  assert.equal(body.delivery_validator_enabled, false);
+  assert.equal(body.final_delivery_authorized, false);
 });
 
 test('health GET returns 200 with no-store headers', async () => {
@@ -56,13 +60,16 @@ test('health rejects non-GET', async () => {
   assert.equal(res.body.code, 'METHOD_NOT_ALLOWED');
 });
 
-test('delivery POST fails closed and does not echo raw model output', async () => {
+test('delivery POST remains fail closed and does not echo raw model output', async () => {
   const raw = '# • DOĞUM HARİTAN •\n> malformed output';
   const res = fakeResponse();
   await delivery({ method: 'POST', body: { raw_output: raw } }, res);
   assert.equal(res.statusCode, 503);
-  assert.equal(res.body.code, 'M1A_2_RENDERER_NOT_AVAILABLE');
+  assert.equal(res.body.code, 'M1A_3_DELIVERY_VALIDATOR_NOT_AVAILABLE');
   assert.equal(res.body.raw_delivery_allowed, false);
+  assert.equal(res.body.canonical_renderer_enabled, true);
+  assert.equal(res.body.delivery_validator_enabled, false);
+  assert.equal(res.body.final_delivery_authorized, false);
   assert.equal(JSON.stringify(res.body).includes(raw), false);
   assert.equal(res.getHeader('cache-control'), 'no-store');
 });

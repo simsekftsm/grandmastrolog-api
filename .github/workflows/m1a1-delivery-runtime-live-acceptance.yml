@@ -1,4 +1,4 @@
-name: M1A-2 Structured Natal Live Acceptance
+name: M1A-3 Deterministic Renderer Live Acceptance
 
 on:
   pull_request:
@@ -10,30 +10,37 @@ permissions:
 jobs:
   live-acceptance:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       BASE_URL: https://grandmastrolog-delivery-runtime.vercel.app
       EXISTING_API_URL: https://grandmastrolog-api-production.up.railway.app
       EXPECTED_VERCEL_PROJECT_ID: prj_XhDus3tQsyiLxrPccbQteXLwbB2a
+      EXPECTED_MAIN_HEAD: c71f752c9d7c426c056e8e912c767465c6599d91
     steps:
-      - name: Checkout candidate
+      - name: Checkout exact candidate
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 2
 
-      - name: Verify exact candidate head and deployment lock authority
+      - name: Verify candidate, PR boundary, main freeze and deployment lock authority
         shell: bash
         run: |
           set -euo pipefail
           EXPECTED='${{ github.event.pull_request.head.sha || github.sha }}'
           ACTUAL="$(git rev-parse HEAD)"
           test "$ACTUAL" = "$EXPECTED"
-          test -f .github/m1a2-production-lock.json
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.draft }}' = 'true'
+            test '${{ github.event.pull_request.base.ref }}' = 'main'
+            test '${{ github.event.pull_request.head.ref }}' = 'm1a-1-delivery-runtime-foundation'
+          fi
+          git fetch --no-tags --depth=1 origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_MAIN_HEAD"
+          test -f .github/m1a3-production-lock.json
           python3 - <<'PY'
           import json
-          p='.github/m1a2-production-lock.json'
-          x=json.load(open(p,encoding='utf-8'))
+          x=json.load(open('.github/m1a3-production-lock.json',encoding='utf-8'))
           required={'deployment_id','project_id','runtime_source_commit','source_fingerprint','source_provenance_blob_sha'}
           assert set(x)==required
           assert x['deployment_id'].startswith('dpl_')
@@ -42,16 +49,24 @@ jobs:
           assert len(x['source_fingerprint'])==64
           assert len(x['source_provenance_blob_sha'])==40
           PY
-          RUNTIME_SOURCE="$(python3 -c "import json; print(json.load(open('.github/m1a2-production-lock.json'))['runtime_source_commit'])")"
+          RUNTIME_SOURCE="$(python3 -c "import json; print(json.load(open('.github/m1a3-production-lock.json'))['runtime_source_commit'])")"
           git fetch --no-tags --depth=1 origin "$RUNTIME_SOURCE"
           mapfile -t CHANGED < <(git diff --name-only "$RUNTIME_SOURCE" HEAD)
           test "${#CHANGED[@]}" = '1'
-          test "${CHANGED[0]}" = '.github/m1a2-production-lock.json'
+          test "${CHANGED[0]}" = '.github/m1a3-production-lock.json'
 
-      - name: Local M1A-2 regression and falsification suite
+      - name: Local M1A-2 regression plus M1A-3 renderer falsification 79 of 79
         working-directory: delivery_runtime
         shell: bash
-        run: npm test
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap tests/*.test.js | tee /tmp/m1a3-tests.tap
+          TESTS="$(awk '/^# tests /{print $3}' /tmp/m1a3-tests.tap | tail -1)"
+          PASS="$(awk '/^# pass /{print $3}' /tmp/m1a3-tests.tap | tail -1)"
+          FAIL="$(awk '/^# fail /{print $3}' /tmp/m1a3-tests.tap | tail -1)"
+          test "$TESTS" = '79'
+          test "$PASS" = '79'
+          test "$FAIL" = '0'
 
       - name: Production health, immutable deployment and source provenance gate
         shell: bash
@@ -61,8 +76,8 @@ jobs:
             if curl -fsS "$BASE_URL/api/health" -o /tmp/health.json; then
               if python3 - <<'PY'
           import json
-          x=json.load(open('/tmp/health.json', encoding='utf-8'))
-          raise SystemExit(0 if x.get('stage') == 'M1A-2' else 1)
+          x=json.load(open('/tmp/health.json',encoding='utf-8'))
+          raise SystemExit(0 if x.get('stage')=='M1A-3' else 1)
           PY
               then break; fi
             fi
@@ -70,85 +85,104 @@ jobs:
             sleep 5
           done
           python3 - <<'PY'
-          import hashlib, json, subprocess
-          x=json.load(open('/tmp/health.json', encoding='utf-8'))
-          lock=json.load(open('.github/m1a2-production-lock.json', encoding='utf-8'))
-          expected = {
-            'ok': True,
-            'service': 'grandmastrolog-delivery-runtime',
-            'stage': 'M1A-2',
-            'mode': 'fail-closed',
-            'delivery_boundary': 'present',
-            'raw_delivery_allowed': False,
-            'structured_contract_enabled': True,
-            'canonical_renderer_enabled': False,
-            'delivery_validator_enabled': False,
-            'next_stage': 'M1A-3'
+          import hashlib,json,subprocess
+          x=json.load(open('/tmp/health.json',encoding='utf-8'))
+          lock=json.load(open('.github/m1a3-production-lock.json',encoding='utf-8'))
+          expected={
+            'ok':True,
+            'service':'grandmastrolog-delivery-runtime',
+            'stage':'M1A-3',
+            'mode':'fail-closed',
+            'delivery_boundary':'present',
+            'raw_delivery_allowed':False,
+            'structured_contract_enabled':True,
+            'canonical_renderer_enabled':True,
+            'delivery_validator_enabled':False,
+            'final_delivery_authorized':False,
+            'next_stage':'M1A-4'
           }
-          for k,v in expected.items():
-            assert x.get(k) == v, (k, x.get(k), v)
-          files = [
+          for k,v in expected.items(): assert x.get(k)==v,(k,x.get(k),v)
+          files=[
             'delivery_runtime/api/delivery.js',
             'delivery_runtime/api/health.js',
             'delivery_runtime/api/model-natal.js',
+            'delivery_runtime/api/render-natal.js',
             'delivery_runtime/api/validate-natal.js',
             'delivery_runtime/contracts/gm-natal-semantic-v1.schema.json',
+            'delivery_runtime/lib/element-visual.js',
             'delivery_runtime/lib/foundation.js',
             'delivery_runtime/lib/groq-binding.js',
             'delivery_runtime/lib/model-binding.js',
             'delivery_runtime/lib/natal-contract.js',
+            'delivery_runtime/lib/natal-renderer.js',
             'delivery_runtime/lib/schema-runtime.js',
             'delivery_runtime/package.json',
+            'delivery_runtime/public/elements/ates.png',
+            'delivery_runtime/public/elements/hava.png',
+            'delivery_runtime/public/elements/su.png',
+            'delivery_runtime/public/elements/toprak.png',
             'delivery_runtime/vercel.json'
           ]
-          local={p: subprocess.check_output(['git','hash-object',p],text=True).strip() for p in files}
+          local={p:subprocess.check_output(['git','hash-object',p],text=True).strip() for p in files}
           canonical=''.join(f'{p}={local[p]}\n' for p in sorted(local))
           fingerprint=hashlib.sha256(canonical.encode('utf-8')).hexdigest()
           provenance=x.get('source_provenance') or {}
           deployment=x.get('deployment_provenance') or {}
           provenance_blob=subprocess.check_output(['git','hash-object','delivery_runtime/lib/source-provenance.js'],text=True).strip()
-          assert fingerprint == lock['source_fingerprint']
-          assert provenance_blob == lock['source_provenance_blob_sha']
-          assert provenance.get('algorithm') == 'git-blob-sha1-manifest-v1'
-          assert provenance.get('files') == local
-          assert provenance.get('fingerprint') == fingerprint
-          assert deployment.get('deployment_id') == lock['deployment_id']
-          assert deployment.get('project_id') == lock['project_id']
-          assert deployment.get('environment') == 'production'
+          assert fingerprint==lock['source_fingerprint']
+          assert provenance_blob==lock['source_provenance_blob_sha']
+          assert provenance.get('algorithm')=='git-blob-sha1-manifest-v1'
+          assert provenance.get('files')==local
+          assert provenance.get('fingerprint')==fingerprint
+          assert deployment.get('deployment_id')==lock['deployment_id']
+          assert deployment.get('project_id')==lock['project_id']
+          assert deployment.get('environment')=='production'
           PY
+          for asset in ates hava su toprak; do curl -fsS "$BASE_URL/elements/$asset.png" -o "/tmp/$asset.png"; test -s "/tmp/$asset.png"; done
 
-      - name: Build independent canonical probe fixtures
+      - name: Stale deployment and fake provenance mutants EXPECTED FAIL
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json
-          placements=['sun','moon','ascendant','mercury','venus','mars','jupiter','saturn','uranus','neptune','pluto','north_node','mc']
-          signs=['Balık','Başak','Aslan','Balık','Kova','Oğlak','Yengeç','Oğlak','Oğlak','Oğlak','Akrep','Kova','Boğa']
-          pre=['profilin','haritanin_ozu','element_dengen','sinerji','senin_yolun']
-          main=['para_kariyer','iliskiler','aile','karmalar']
-          special=['hellenistic','jyotish','esoteric','sade_sati','rahu_ketu','retrogrades','lilith','chiron','vertex','part_of_fortune','fixed_stars']
-          evidence=[]
-          for i,p in enumerate(placements):
-              evidence.append({'evidence_id':f'ev_{p}','source_ref':f'astro://verified/{p}','kind':'placement','subject_id':p,'semantic_value':f'{p} verified placement','sign':signs[i],'degree':f'{10+i}°00′','house':'' if p in ('ascendant','mc') else f'{i%12+1}. ev','retrograde':p in ('pluto','north_node'),'verification_state':'verified'})
-          for s in ['ayin_gokyuzu_haritasi',*pre,*main,*special]:
-              evidence.append({'evidence_id':f'ev_{s}','source_ref':f'astro://verified/indicator/{s}','kind':'indicator','subject_id':s,'semantic_value':f'{s} için doğrulanmış gösterge','sign':'','degree':'','house':'','retrograde':False,'verification_state':'verified'})
-          availability={k:False for k in ['ayin_gokyuzu_haritasi','element_dengen','sinerji','senin_yolun',*special]}
-          binding={'request_id':'gha-live-1','semantic_input':'Doğrulanmış verilerden ilk Natal semantik sözleşmesini üret.','availability':availability,'verified_evidence':evidence}
-          byid={x['evidence_id']:x for x in evidence}
-          pp=[]
-          for p in placements:
-              e=byid[f'ev_{p}']; pp.append({'point_id':p,'sign':e['sign'],'degree':e['degree'],'house':e['house'],'retrograde':e['retrograde'],'evidence_id':e['evidence_id']})
-          required={'profilin','haritanin_ozu','para_kariyer','iliskiler','aile','karmalar'}
-          def sec(s):
-              inc=s in required
-              return {'section_id':s,'included':inc,'body_paragraphs':[f'{s} için düz semantik içerik.'] if inc else [],'hat_evidence_refs':[f'ev_{s}'] if inc else []}
-          payload={'contract_version':'gm.natal.v1','response_id':'initial_natal','opening_id':'natal_first_pass','prelude':{'section_id':'ayin_gokyuzu_haritasi','included':False,'body_paragraphs':[],'hat_evidence_refs':[]},'natal_placements':pp,'pre_seal_sections':[sec(x) for x in pre],'personal_seal':{'seal_id':'sun_asc_personal_seal','included':True,'motto':'Duyarlılığını görünür bir iradeyle taşırsın.','evidence_refs':['ev_sun','ev_ascendant']},'main_life_sections':[sec(x) for x in main],'first_calibration':{'calibration_id':'main_life_areas','required':True},'special_contributions':[],'second_calibration':{'calibration_id':'general_natal','required':True},'return_identity':'return_to_user_intent','validation_metadata':{'schema_id':'gm_natal_semantic_v1','schema_version':'1.0.0','evidence_policy':'verified_only','visible_markup_owner':'m1a3_deterministic_renderer'}}
-          json.dump({'binding_input':binding,'semantic_payload':payload},open('/tmp/valid.json','w',encoding='utf-8'),ensure_ascii=False)
-          json.dump(binding,open('/tmp/model.json','w',encoding='utf-8'),ensure_ascii=False)
-          bad=json.loads(json.dumps(payload)); bad['pre_seal_sections'][0]['body_paragraphs']=['> *Hat: escape*']
-          json.dump({'binding_input':binding,'semantic_payload':bad},open('/tmp/bad.json','w',encoding='utf-8'),ensure_ascii=False)
+          import copy,json
+          health=json.load(open('/tmp/health.json',encoding='utf-8'))
+          lock=json.load(open('.github/m1a3-production-lock.json',encoding='utf-8'))
+          def gate(h):
+              assert h['deployment_provenance']['deployment_id']==lock['deployment_id']
+              assert h['deployment_provenance']['project_id']==lock['project_id']
+              assert h['source_provenance']['fingerprint']==lock['source_fingerprint']
+          gate(health)
+          for mutate in ('deployment','fingerprint','project'):
+              x=copy.deepcopy(health)
+              if mutate=='deployment': x['deployment_provenance']['deployment_id']='dpl_STALE_MUTANT'
+              if mutate=='fingerprint': x['source_provenance']['fingerprint']='0'*64
+              if mutate=='project': x['deployment_provenance']['project_id']='prj_FAKE_MUTANT'
+              try: gate(x)
+              except AssertionError: pass
+              else: raise AssertionError(f'{mutate} mutant was not killed')
           PY
+
+      - name: Build deterministic canonical probe fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const {availability,bindingInput,validPayload,clone}=require('./delivery_runtime/tests/helpers');
+          const baseAv=availability();
+          const baseBinding=bindingInput(baseAv);
+          const basePayload=validPayload(baseAv);
+          fs.writeFileSync('/tmp/valid.json',JSON.stringify({binding_input:baseBinding,semantic_payload:basePayload}));
+          fs.writeFileSync('/tmp/model.json',JSON.stringify(baseBinding));
+          const bad=clone(basePayload); bad.pre_seal_sections[0].body_paragraphs=['> *Hat: escape*'];
+          fs.writeFileSync('/tmp/bad.json',JSON.stringify({binding_input:baseBinding,semantic_payload:bad}));
+          const av=availability({element_dengen:true,sinerji:true,senin_yolun:true,hellenistic:true,sade_sati:true});
+          const binding=bindingInput(av);
+          binding.verified_evidence.find(x=>x.evidence_id==='ev_element_dengen').semantic_value=JSON.stringify({'Ateş':45,'Toprak':25,'Hava':20,'Su':10});
+          const payload=validPayload(av);
+          fs.writeFileSync('/tmp/element.json',JSON.stringify({binding_input:binding,semantic_payload:payload}));
+          NODE
 
       - name: Executable schema and semantic validator live gate
         shell: bash
@@ -176,7 +210,67 @@ jobs:
           assert x['ok'] is False and x['code']=='MARKDOWN_ESCAPE'
           PY
 
-      - name: Real Groq strict structured-output binding gate
+      - name: Canonical renderer live determinism, Markdown and semantic-preservation gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          for n in 1 2; do
+            STATUS=$(curl -sS -o "/tmp/render$n.json" -w '%{http_code}' -X POST "$BASE_URL/api/render-natal" -H 'content-type: application/json' --data-binary @/tmp/valid.json)
+            test "$STATUS" = '200'
+          done
+          python3 - <<'PY'
+          import json
+          a=json.load(open('/tmp/render1.json',encoding='utf-8'))
+          b=json.load(open('/tmp/render2.json',encoding='utf-8'))
+          assert a==b
+          r=a['render']; m=r['canonical_markdown']
+          assert r['render_state']=='rendered_for_m1a3_acceptance'
+          assert r['final_delivery_authorized'] is False
+          assert r['delivery_validator_enabled'] is False
+          assert m.startswith('---\n> # • NATAL (DOĞUM) HARİTAN •\n')
+          for h in ['> ## • PROFİLİN •','> ## • HARİTANIN ÖZÜ •','> ## • PARA & KARİYER •','> ## • İLİŞKİLER •','> ## • AİLE •','> ## • KARMALAR •']:
+              assert m.count(h)==1,h
+          assert '> ## • HARİTANIN ÖZÜ •\n>\n> *Hat:' in m
+          assert 'Harita hattın:' not in m
+          assert 'POTANSİYELLER' not in m
+          assert '"semantic_payload"' not in m and '"evidence_bindings"' not in m
+          assert 'Buraya kadarki ana yaşam alanları sende karşılık buluyor mu? **Evet / Hayır / Kısmen**' in m
+          assert 'Bu anlattıklarım sende karşılık buluyor mu? **Evet / Hayır / Kısmen**' in m
+          assert 'Natal kapısı tamamlandı; bundan sonra doğrudan istediğin konuya girebiliriz.' in m
+          assert r['canonical_markdown_sha256']==b['render']['canonical_markdown_sha256']
+          PY
+          STATUS=$(curl -sS -o /tmp/fake-envelope.json -w '%{http_code}' -X POST "$BASE_URL/api/render-natal" -H 'content-type: application/json' --data-binary '{"contract":{"contract_version":"gm.natal.v1"},"binding_input":{},"semantic_payload":{}}')
+          test "$STATUS" = '400'
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/fake-envelope.json',encoding='utf-8'))
+          assert x['code']=='UNKNOWN_FIELD'
+          PY
+
+      - name: Optional Element canonical visual live gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS=$(curl -sS -o /tmp/element-out.json -w '%{http_code}' -X POST "$BASE_URL/api/render-natal" -H 'content-type: application/json' --data-binary @/tmp/element.json)
+          test "$STATUS" = '200'
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/element-out.json',encoding='utf-8'))
+          r=x['render']; m=r['canonical_markdown']; v=r['visual_attachments']
+          assert '> ## • ELEMENT DENGEN •' in m
+          assert '> ## • BALIK + ASLAN SİNERJİSİ •' in m
+          assert '> ## • SENİN YOLUN •' in m
+          assert '{"Ateş":45' not in m
+          assert len(v)==1 and v[0]['insert_after_section']=='element_dengen'
+          assert v[0]['mime_type']=='image/svg+xml'
+          assert v[0]['asset_refs']==['/elements/ates.png','/elements/toprak.png','/elements/hava.png','/elements/su.png']
+          assert [r['name_font_size'] for r in v[0]['legend']]==[28,27,26,25]
+          assert [r['percent_font_size'] for r in v[0]['legend']]==[29,28,27,26]
+          assert 'font-weight="700" fill="#ff8412">ATEŞ</text>' in v[0]['svg']
+          assert 'font-size="28" font-weight="400" fill="#ff8412">ATEŞ</text>' in v[0]['svg']
+          PY
+
+      - name: Real Groq strict structured-output plus renderer regression gate
         shell: bash
         run: |
           set -euo pipefail
@@ -200,9 +294,23 @@ jobs:
           assert x['contract']['render_state']=='blocked_until_m1a3'
           raw=json.dumps(x,ensure_ascii=False)
           assert '> ##' not in raw and 'raw_markdown' not in raw and 'rendered_section' not in raw
+          binding=json.load(open('/tmp/model.json',encoding='utf-8'))
+          json.dump({'binding_input':binding,'semantic_payload':x['contract']['semantic_payload']},open('/tmp/model-render.json','w',encoding='utf-8'),ensure_ascii=False)
+          PY
+          STATUS=$(curl -sS -o /tmp/model-render-out.json -w '%{http_code}' -X POST "$BASE_URL/api/render-natal" -H 'content-type: application/json' --data-binary @/tmp/model-render.json)
+          test "$STATUS" = '200'
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/model-render-out.json',encoding='utf-8'))
+          assert x['ok'] is True
+          r=x['render']; m=r['canonical_markdown']
+          assert r['final_delivery_authorized'] is False
+          assert r['delivery_validator_enabled'] is False
+          assert m.startswith('---\n> # • NATAL (DOĞUM) HARİTAN •\n')
+          assert '"semantic_payload"' not in m and 'raw_model_output' not in m
           PY
 
-      - name: Delivery remains fail closed and does not echo raw output
+      - name: Final delivery remains fail closed and raw output cannot echo
         shell: bash
         run: |
           set -euo pipefail
@@ -212,10 +320,11 @@ jobs:
           import json
           x=json.load(open('/tmp/delivery.json',encoding='utf-8'))
           assert x['ok'] is False
-          assert x['code']=='M1A_2_RENDERER_NOT_AVAILABLE'
+          assert x['code']=='M1A_3_DELIVERY_VALIDATOR_NOT_AVAILABLE'
           assert x['raw_delivery_allowed'] is False
-          assert x['canonical_renderer_enabled'] is False
+          assert x['canonical_renderer_enabled'] is True
           assert x['delivery_validator_enabled'] is False
+          assert x['final_delivery_authorized'] is False
           assert 'malformed output' not in json.dumps(x,ensure_ascii=False)
           PY
 
@@ -226,6 +335,7 @@ jobs:
           test "$(curl -sS -o /tmp/a -w '%{http_code}' "$BASE_URL/api/delivery")" = '405'
           test "$(curl -sS -o /tmp/b -w '%{http_code}' "$BASE_URL/api/validate-natal")" = '405'
           test "$(curl -sS -o /tmp/c -w '%{http_code}' "$BASE_URL/api/model-natal")" = '405'
+          test "$(curl -sS -o /tmp/d -w '%{http_code}' "$BASE_URL/api/render-natal")" = '405'
 
       - name: Existing unrelated GrandMastrolog API regression probe
         shell: bash

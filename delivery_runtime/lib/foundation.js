@@ -1,9 +1,9 @@
 'use strict';
 
 const SERVICE = 'grandmastrolog-delivery-runtime';
-const STAGE = 'M1A-2';
+const STAGE = 'M1A-3';
 const MODE = 'fail-closed';
-const FOUNDATION_CODE = 'M1A_2_RENDERER_NOT_AVAILABLE';
+const FOUNDATION_CODE = 'M1A_3_DELIVERY_VALIDATOR_NOT_AVAILABLE';
 
 function applySecurityHeaders(res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -20,9 +20,10 @@ function statusPayload() {
     delivery_boundary: 'present',
     raw_delivery_allowed: false,
     structured_contract_enabled: true,
-    canonical_renderer_enabled: false,
+    canonical_renderer_enabled: true,
     delivery_validator_enabled: false,
-    next_stage: 'M1A-3'
+    final_delivery_authorized: false,
+    next_stage: 'M1A-4'
   };
 }
 
@@ -35,9 +36,10 @@ function blockedPayload() {
     mode: MODE,
     raw_delivery_allowed: false,
     structured_contract_enabled: true,
-    canonical_renderer_enabled: false,
+    canonical_renderer_enabled: true,
     delivery_validator_enabled: false,
-    message: 'Delivery remains fail-closed until the deterministic canonical renderer and final delivery validator are enabled.'
+    final_delivery_authorized: false,
+    message: 'Deterministic canonical rendering is available only on the M1A-3 acceptance surface. Final user delivery remains fail-closed until the M1A-4 delivery validator is enabled.'
   };
 }
 
