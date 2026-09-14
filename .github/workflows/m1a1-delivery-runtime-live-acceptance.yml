@@ -1,9 +1,6 @@
 name: M1A-2 Structured Natal Live Acceptance
 
 on:
-  push:
-    branches:
-      - m1a-1-delivery-runtime-foundation
   pull_request:
   workflow_dispatch:
 
@@ -123,7 +120,15 @@ jobs:
         run: |
           set -euo pipefail
           STATUS=$(curl -sS -o /tmp/model-out.json -w '%{http_code}' -X POST "$BASE_URL/api/model-natal" -H 'content-type: application/json' --data-binary @/tmp/model.json)
-          test "$STATUS" = '200'
+          if [ "$STATUS" != '200' ]; then
+            python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/model-out.json',encoding='utf-8'))
+          safe={k:x.get(k) for k in ('code','upstream_provider','upstream_status','path') if k in x}
+          print('MODEL_BINDING_DIAGNOSTIC='+json.dumps(safe,ensure_ascii=False,sort_keys=True))
+          PY
+            exit 1
+          fi
           python3 - <<'PY'
           import json
           x=json.load(open('/tmp/model-out.json',encoding='utf-8'))
