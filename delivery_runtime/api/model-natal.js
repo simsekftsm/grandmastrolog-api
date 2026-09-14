@@ -9,6 +9,7 @@ const {
   openAIStrictFormat,
   modelInstructions
 } = require('../lib/natal-contract');
+const { canonicalizeModelPayload } = require('../lib/model-binding');
 
 const GROQ_RESPONSES_URL = 'https://api.groq.com/openai/v1/responses';
 const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-120b';
@@ -69,7 +70,13 @@ module.exports = async function modelNatal(req, res) {
     } catch {
       return res.status(502).json({ ok: false, code: 'MODEL_STRUCTURED_PARSE_FAIL', upstream_provider: 'groq' });
     }
-    const contract = makeValidatedEnvelope(payload, evidenceMap, availability);
+
+    // Deterministic contract facts are server-owned. The model supplies semantic
+    // prose/evidence choices; canonical identities, inclusion, placements,
+    // calibration and metadata are rebound from verified server input before the
+    // independent semantic validator can authorize the structured envelope.
+    const canonicalPayload = canonicalizeModelPayload(payload, evidenceMap, availability);
+    const contract = makeValidatedEnvelope(canonicalPayload, evidenceMap, availability);
     return res.status(200).json({ ok: true, model_binding: MODEL_BINDING, provider: 'groq', model, contract });
   } catch (error) {
     if (error instanceof ContractValidationError || error instanceof SchemaValidationError) {
