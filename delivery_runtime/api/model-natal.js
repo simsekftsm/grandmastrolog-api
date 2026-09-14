@@ -5,11 +5,10 @@ const {
   ContractValidationError,
   SchemaValidationError,
   validateBindingInput,
-  makeValidatedEnvelope,
-  openAIStrictFormat,
-  modelInstructions
+  makeValidatedEnvelope
 } = require('../lib/natal-contract');
 const { canonicalizeModelPayload } = require('../lib/model-binding');
+const { groqGenerationFormat, groqModelInstructions } = require('../lib/groq-binding');
 
 const GROQ_RESPONSES_URL = 'https://api.groq.com/openai/v1/responses';
 const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-120b';
@@ -49,9 +48,9 @@ module.exports = async function modelNatal(req, res) {
       },
       body: JSON.stringify({
         model,
-        instructions: modelInstructions(availability, req.body.verified_evidence),
+        instructions: groqModelInstructions(availability, req.body.verified_evidence),
         input: req.body.semantic_input,
-        text: { format: openAIStrictFormat() }
+        text: { format: groqGenerationFormat(req.body.verified_evidence, availability) }
       }),
       signal: AbortSignal.timeout(50000)
     });
