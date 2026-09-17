@@ -4,6 +4,7 @@
 // Tests, workflow files and repository-only lock documents are excluded.
 const FILES = Object.freeze({
   'delivery_runtime/api/delivery.js': '58c8ff9e97b7a02542d8d34afbcdbe8767752ee0',
+  'delivery_runtime/api/e2e-natal.js': 'c69272aa8cfd1b4e8c7e0187999674aeefaddc0e',
   'delivery_runtime/api/health.js': '536e3061a23bab293aa9ebf5cf2cb2b41ab2b772',
   'delivery_runtime/api/model-natal.js': '046d62aac226be26207283692d22cf646a67102e',
   'delivery_runtime/api/render-natal.js': '6e6e83ec0098b0cfde0e1f1aee2f7831a34a989f',
@@ -23,10 +24,10 @@ const FILES = Object.freeze({
   'delivery_runtime/public/elements/hava.png': '303fb8bbf897007c9d942ed6ae4882078de2ccbe',
   'delivery_runtime/public/elements/su.png': 'dc421441b5b82faf8e599ab20b717dc50e22c296',
   'delivery_runtime/public/elements/toprak.png': '8a64f0f2470b43b92bd33e0a506a65cfbc60a029',
-  'delivery_runtime/vercel.json': 'ce01913795915116f2803de4b18dc7f95c285e1b'
+  'delivery_runtime/vercel.json': '00df89d17927cd0872305e680cd2beb180ae6149'
 });
 
-const FINGERPRINT = 'c3947603271dcf8330a86a9e9b3ca582857bb6c75eb39f23933abd335924c774';
+const FINGERPRINT = '176b4c681a2ef250a21363628a2352ae2a97f7ab38d5cb7f4f162f861bf35e05';
 
 function sourceProvenance() {
   return {
