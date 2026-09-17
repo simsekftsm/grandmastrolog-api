@@ -5,7 +5,11 @@ const assert = require('node:assert/strict');
 
 const health = require('../api/health');
 const delivery = require('../api/delivery');
+const { signTrustedRequest } = require('../lib/trust-boundary');
 const { statusPayload, blockedPayload } = require('../lib/foundation');
+
+const TEST_SECRET = 'unit-test-gm-secret-not-production';
+process.env.GM_API_SECRET = TEST_SECRET;
 
 function fakeResponse() {
   const headers = new Map();
@@ -19,10 +23,24 @@ function fakeResponse() {
   };
 }
 
-test('M1A-4 trust-boundary status preserves M1A-2 and M1A-3 while final delivery stays closed', () => {
+function trustedDelivery(body) {
+  const seal = signTrustedRequest({ secret: TEST_SECRET, method: 'POST', routeId: 'delivery', body });
+  return {
+    method: 'POST', body,
+    headers: {
+      authorization: `Bearer ${TEST_SECRET}`,
+      'x-gm-evidence-source': seal.source,
+      'x-gm-evidence-timestamp': seal.timestamp,
+      'x-gm-evidence-signature': seal.signature
+    }
+  };
+}
+
+test('M1A-4 final-delivery candidate preserves prior layers while authorization stays closed', () => {
+  delete process.env.GM_FINAL_DELIVERY_AUTHORIZED;
   const body = statusPayload();
   assert.equal(body.ok, true);
-  assert.equal(body.stage, 'M1A-4-TRUST-BOUNDARY');
+  assert.equal(body.stage, 'M1A-4-FINAL-DELIVERY-CANDIDATE');
   assert.equal(body.mode, 'fail-closed');
   assert.equal(body.delivery_boundary, 'present');
   assert.equal(body.raw_delivery_allowed, false);
@@ -39,7 +57,7 @@ test('M1A-4 trust-boundary status preserves M1A-2 and M1A-3 while final delivery
 test('blocked payload never authorizes raw or final delivery', () => {
   const body = blockedPayload();
   assert.equal(body.ok, false);
-  assert.equal(body.code, 'M1A_3_DELIVERY_VALIDATOR_NOT_AVAILABLE');
+  assert.equal(body.code, 'M1A_4_FINAL_DELIVERY_NOT_AUTHORIZED');
   assert.equal(body.raw_delivery_allowed, false);
   assert.equal(body.structured_contract_enabled, true);
   assert.equal(body.canonical_renderer_enabled, true);
@@ -48,12 +66,15 @@ test('blocked payload never authorizes raw or final delivery', () => {
   assert.equal(body.final_delivery_authorized, false);
 });
 
-test('health GET returns 200 with no-store headers', async () => {
+test('health GET returns candidate state with no-store headers before acceptance', async () => {
+  delete process.env.GM_FINAL_DELIVERY_AUTHORIZED;
   const res = fakeResponse();
   await health({ method: 'GET' }, res);
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.ok, true);
-  assert.equal(res.body.trust_boundary_enabled, true);
+  assert.equal(res.body.stage, 'M1A-4-FINAL-DELIVERY-CANDIDATE');
+  assert.equal(res.body.delivery_validator_enabled, false);
+  assert.equal(res.body.final_delivery_authorized, false);
   assert.equal(res.getHeader('cache-control'), 'no-store');
   assert.equal(res.getHeader('x-content-type-options'), 'nosniff');
 });
@@ -65,14 +86,15 @@ test('health rejects non-GET', async () => {
   assert.equal(res.body.code, 'METHOD_NOT_ALLOWED');
 });
 
-test('delivery POST remains fail closed and does not echo raw model output', async () => {
+test('trusted delivery remains fail closed before final authorization and does not echo input', async () => {
+  delete process.env.GM_FINAL_DELIVERY_AUTHORIZED;
   const raw = '# • DOĞUM HARİTAN •\n> malformed output';
+  const body = { raw_output: raw };
   const res = fakeResponse();
-  await delivery({ method: 'POST', body: { raw_output: raw } }, res);
+  await delivery(trustedDelivery(body), res);
   assert.equal(res.statusCode, 503);
-  assert.equal(res.body.code, 'M1A_3_DELIVERY_VALIDATOR_NOT_AVAILABLE');
+  assert.equal(res.body.code, 'FINAL_DELIVERY_NOT_AUTHORIZED');
   assert.equal(res.body.raw_delivery_allowed, false);
-  assert.equal(res.body.canonical_renderer_enabled, true);
   assert.equal(res.body.delivery_validator_enabled, false);
   assert.equal(res.body.final_delivery_authorized, false);
   assert.equal(JSON.stringify(res.body).includes(raw), false);
