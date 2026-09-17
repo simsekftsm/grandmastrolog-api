@@ -176,7 +176,7 @@ jobs:
           }
 
           STATUS=$(curl -sS -o /tmp/unauth.json -w '%{http_code}' -X POST "$BASE_URL/api/delivery" -H 'content-type: application/json' --data-binary @/tmp/valid.json)
-          test "$STATUS" = '401'
+          if [ "$STATUS" != '401' ]; then echo "SAFE_GATE unauth_status=$STATUS"; exit 1; fi
 
           node - <<'NODE'
           const fs=require('node:fs'); const base=JSON.parse(fs.readFileSync('/tmp/valid.json'));
@@ -186,7 +186,7 @@ jobs:
           NODE
           for name in raw flags render prov stale; do
             STATUS=$(post_sealed delivery "/tmp/$name.json" "/tmp/$name-out.json")
-            test "$STATUS" = '400'
+            if [ "$STATUS" != '400' ]; then echo "SAFE_GATE mutant=$name status=$STATUS"; exit 1; fi
             python3 - "$name" <<'PY'
           import json,sys
           x=json.load(open('/tmp/'+sys.argv[1]+'-out.json'))
@@ -198,7 +198,7 @@ jobs:
           done
 
           STATUS=$(post_sealed delivery /tmp/missing-evidence.json /tmp/missing-out.json)
-          test "$STATUS" = '422'
+          if [ "$STATUS" != '422' ]; then echo "SAFE_GATE missing_evidence_status=$STATUS"; exit 1; fi
 
           NOW="$(date +%s)"; STALE="$((NOW-301))"
           read -r TS SIG <<< "$(seal delivery /tmp/valid.json "$STALE")"
@@ -206,7 +206,7 @@ jobs:
             -H 'content-type: application/json' -H "authorization: Bearer $GM_API_SECRET" \
             -H 'x-gm-evidence-source: grandmastrolog-api' -H "x-gm-evidence-timestamp: $TS" \
             -H "x-gm-evidence-signature: $SIG" --data-binary @/tmp/valid.json)
-          test "$STATUS" = '403'
+          if [ "$STATUS" != '403' ]; then echo "SAFE_GATE stale_status=$STATUS"; exit 1; fi
           python3 - <<'PY'
           import json
           assert json.load(open('/tmp/stale-trust.json'))['code']=='TRUST_PROVENANCE_STALE'
@@ -214,7 +214,14 @@ jobs:
 
           for n in 1 2; do
             STATUS=$(post_sealed delivery /tmp/valid.json "/tmp/final$n.json")
-            test "$STATUS" = '200'
+            if [ "$STATUS" != '200' ]; then
+              python3 - "$STATUS" "$n" <<'PY'
+          import json,sys
+          try: x=json.load(open('/tmp/final'+sys.argv[2]+'.json',encoding='utf-8'))
+          except Exception: x={}
+          raise SystemExit("SAFE_GATE valid_status="+sys.argv[1]+" code="+str(x.get('code')))
+          PY
+            fi
           done
           python3 - <<'PY'
           import json,re
