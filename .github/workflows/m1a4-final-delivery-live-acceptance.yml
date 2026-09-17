@@ -147,7 +147,8 @@ jobs:
           fs.writeFileSync('/tmp/model.json',JSON.stringify(binding));
           const bad=clone(payload); bad.pre_seal_sections[0].body_paragraphs=['> *Hat: escape*'];
           fs.writeFileSync('/tmp/bad.json',JSON.stringify({binding_input:binding,semantic_payload:bad}));
-          const missing=clone(binding); missing.verified_evidence.pop();
+          const missing=clone(binding);
+          missing.verified_evidence=missing.verified_evidence.filter((x)=>x.evidence_id!=='ev_sun');
           fs.writeFileSync('/tmp/missing-evidence.json',JSON.stringify({binding_input:missing,semantic_payload:payload}));
           NODE
 
