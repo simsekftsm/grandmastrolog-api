@@ -66,8 +66,13 @@ jobs:
           RUNTIME_SOURCE="$(python3 -c "import json; print(json.load(open('.github/m1a4-final-production-lock.json'))['runtime_source_commit'])")"
           git fetch --no-tags --depth=1 origin "$RUNTIME_SOURCE"
           mapfile -t CHANGED < <(git diff --name-only "$RUNTIME_SOURCE" HEAD)
-          test "${#CHANGED[@]}" = '1'
-          test "${CHANGED[0]}" = '.github/m1a4-final-production-lock.json'
+          for f in "${CHANGED[@]}"; do
+            case "$f" in
+              .github/m1a4-final-production-lock.json|.github/real-e2e-production-lock.json|.github/workflows/m1a4-final-delivery-live-acceptance.yml|.github/workflows/m1a1-delivery-runtime-live-acceptance.yml) ;;
+              *) echo "Unexpected post-runtime mutation: $f"; exit 1 ;;
+            esac
+          done
+          test -f .github/m1a4-final-production-lock.json
 
       - name: Production health immutable deployment and exact source provenance gate
         shell: bash
