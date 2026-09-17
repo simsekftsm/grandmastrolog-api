@@ -191,7 +191,16 @@ jobs:
           STATUS=$(curl -sS -o /tmp/e2e-out.json -w '%{http_code}' -X POST "$RAILWAY_URL/natal/deliver" \
             -H 'content-type: application/json' -H "x-gm-secret: $GM_API_SECRET" \
             --data-binary @/tmp/synthetic-natal.json)
-          test "$STATUS" = '200'
+          if [ "$STATUS" != '200' ]; then
+            python3 - "$STATUS" <<'PY'
+          import json,sys
+          try:
+              x=json.load(open('/tmp/e2e-out.json',encoding='utf-8'))
+          except Exception:
+              x={}
+          raise SystemExit("SAFE_E2E_DIAG "+json.dumps({"status":sys.argv[1],"ok":x.get("ok"),"code":x.get("code"),"keys":sorted(x.keys())},sort_keys=True))
+          PY
+          fi
           python3 - <<'PY'
           import json,re
           x=json.load(open('/tmp/e2e-out.json',encoding='utf-8'))
