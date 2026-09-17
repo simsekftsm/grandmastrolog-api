@@ -1,7 +1,6 @@
 name: M1A-4 Trust Boundary Live Acceptance
 
 on:
-  pull_request:
   workflow_dispatch:
 
 permissions:
