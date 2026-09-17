@@ -41,23 +41,29 @@ function gitBlobSha1(buffer) {
   return crypto.createHash('sha1').update(prefix).update(buffer).digest('hex');
 }
 
-function verifyPhysicalSourceProvenance() {
-  const provenance = sourceProvenance();
+function fingerprintFiles(files) {
+  const canonical = Object.keys(files).sort().map((file) => `${file}=${files[file]}\n`).join('');
+  return sha256Text(canonical);
+}
+
+function verifySourceManifest(provenance, readFile) {
   if (!provenance || provenance.algorithm !== 'git-blob-sha1-manifest-v1') {
     throw new DeliveryValidationError(503, 'SOURCE_PROVENANCE_UNAVAILABLE');
   }
-  if (!/^[a-f0-9]{64}$/.test(String(provenance.fingerprint || ''))) {
+  const files = provenance.files;
+  if (!files || typeof files !== 'object' || Array.isArray(files) || !Object.keys(files).length) {
     throw new DeliveryValidationError(503, 'SOURCE_PROVENANCE_INVALID');
   }
-  for (const [repoPath, expectedBlob] of Object.entries(provenance.files || {})) {
+  if (fingerprintFiles(files) !== String(provenance.fingerprint || '')) {
+    throw new DeliveryValidationError(503, 'SOURCE_FINGERPRINT_MISMATCH');
+  }
+  for (const [repoPath, expectedBlob] of Object.entries(files)) {
     if (!repoPath.startsWith('delivery_runtime/') || !/^[a-f0-9]{40}$/.test(expectedBlob)) {
       throw new DeliveryValidationError(503, 'SOURCE_PROVENANCE_INVALID');
     }
-    const runtimeRelative = repoPath.slice('delivery_runtime/'.length);
-    const absolute = path.resolve(__dirname, '..', runtimeRelative);
     let bytes;
     try {
-      bytes = fs.readFileSync(absolute);
+      bytes = readFile(repoPath);
     } catch {
       throw new DeliveryValidationError(503, 'SOURCE_PROVENANCE_FILE_MISSING', `$.source.${repoPath}`);
     }
@@ -66,6 +72,14 @@ function verifyPhysicalSourceProvenance() {
     }
   }
   return provenance;
+}
+
+function verifyPhysicalSourceProvenance() {
+  const provenance = sourceProvenance();
+  return verifySourceManifest(provenance, (repoPath) => {
+    const runtimeRelative = repoPath.slice('delivery_runtime/'.length);
+    return fs.readFileSync(path.resolve(__dirname, '..', runtimeRelative));
+  });
 }
 
 function verifyDeploymentProvenance(runtimeEnv = process.env) {
@@ -167,6 +181,8 @@ module.exports = {
   EXPECTED_PROJECT_ID,
   DeliveryValidationError,
   gitBlobSha1,
+  fingerprintFiles,
+  verifySourceManifest,
   verifyPhysicalSourceProvenance,
   verifyDeploymentProvenance,
   validateFinalDelivery
