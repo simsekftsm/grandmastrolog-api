@@ -23,10 +23,10 @@ const FILES = Object.freeze({
   'delivery_runtime/public/elements/hava.png': '303fb8bbf897007c9d942ed6ae4882078de2ccbe',
   'delivery_runtime/public/elements/su.png': 'dc421441b5b82faf8e599ab20b717dc50e22c296',
   'delivery_runtime/public/elements/toprak.png': '8a64f0f2470b43b92bd33e0a506a65cfbc60a029',
-  'delivery_runtime/vercel.json': '00df89d17927cd0872305e680cd2beb180ae6149'
+  'delivery_runtime/vercel.json': '0948e04cdd2407cb4c3ce4923570a98726d9808c'
 });
 
-const FINGERPRINT = '577b259728a58ee562ee36f04c8c869ded6ad5c775c1f74a6b8b40d861c845a1';
+const FINGERPRINT = 'c8771599930f79d6eee96e7085fd4e4930d740b0140ddf8dd8f8ba799f5466b3';
 
 function sourceProvenance() {
   return {
