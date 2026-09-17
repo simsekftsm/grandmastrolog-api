@@ -198,7 +198,14 @@ jobs:
           done
 
           STATUS=$(post_sealed delivery /tmp/missing-evidence.json /tmp/missing-out.json)
-          if [ "$STATUS" != '422' ]; then echo "SAFE_GATE missing_evidence_status=$STATUS"; exit 1; fi
+          if [ "$STATUS" != '422' ]; then
+            python3 - "$STATUS" <<'PY'
+          import json,sys
+          try: x=json.load(open('/tmp/missing-out.json',encoding='utf-8'))
+          except Exception: x={}
+          raise SystemExit("SAFE_GATE missing_evidence_status="+sys.argv[1]+" code="+str(x.get('code')))
+          PY
+          fi
 
           NOW="$(date +%s)"; STALE="$((NOW-301))"
           read -r TS SIG <<< "$(seal delivery /tmp/valid.json "$STALE")"
