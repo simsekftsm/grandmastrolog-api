@@ -1,0 +1,314 @@
+name: M1A-4 Final Delivery Live Acceptance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  final-delivery-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      BASE_URL: https://grandmastrolog-delivery-runtime.vercel.app
+      EXISTING_API_URL: https://grandmastrolog-api-production.up.railway.app
+      EXPECTED_VERCEL_PROJECT_ID: prj_XhDus3tQsyiLxrPccbQteXLwbB2a
+      EXPECTED_MAIN_HEAD: c71f752c9d7c426c056e8e912c767465c6599d91
+      GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+
+      - name: Full local M1A-2 M1A-3 trust and final-delivery regression 108 of 108
+        working-directory: delivery_runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap tests/*.test.js | tee /tmp/m1a4-final-tests.tap
+          TESTS="$(awk '/^# tests /{print $3}' /tmp/m1a4-final-tests.tap | tail -1)"
+          PASS="$(awk '/^# pass /{print $3}' /tmp/m1a4-final-tests.tap | tail -1)"
+          FAIL="$(awk '/^# fail /{print $3}' /tmp/m1a4-final-tests.tap | tail -1)"
+          test "$TESTS" = '108'
+          test "$PASS" = '108'
+          test "$FAIL" = '0'
+
+      - name: Verify PR boundary main freeze and final production lock authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$EXPECTED"
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.draft }}' = 'true'
+            test '${{ github.event.pull_request.base.ref }}' = 'main'
+            test '${{ github.event.pull_request.head.ref }}' = 'm1a-1-delivery-runtime-foundation'
+          fi
+          git fetch --no-tags --depth=1 origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_MAIN_HEAD"
+          test -f .github/m1a4-final-production-lock.json || { echo 'BLOCKED: M1A4_FINAL_PRODUCTION_LOCK_MISSING'; exit 1; }
+          python3 - <<'PY'
+          import json
+          x=json.load(open('.github/m1a4-final-production-lock.json',encoding='utf-8'))
+          required={'deployment_id','project_id','runtime_source_commit','source_fingerprint','source_provenance_blob_sha'}
+          assert set(x)==required
+          assert x['deployment_id'].startswith('dpl_')
+          assert x['project_id']=='prj_XhDus3tQsyiLxrPccbQteXLwbB2a'
+          assert len(x['runtime_source_commit'])==40
+          assert len(x['source_fingerprint'])==64
+          assert len(x['source_provenance_blob_sha'])==40
+          PY
+          RUNTIME_SOURCE="$(python3 -c "import json; print(json.load(open('.github/m1a4-final-production-lock.json'))['runtime_source_commit'])")"
+          git fetch --no-tags --depth=1 origin "$RUNTIME_SOURCE"
+          mapfile -t CHANGED < <(git diff --name-only "$RUNTIME_SOURCE" HEAD)
+          test "${#CHANGED[@]}" = '1'
+          test "${CHANGED[0]}" = '.github/m1a4-final-production-lock.json'
+
+      - name: Production health immutable deployment and exact source provenance gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "$BASE_URL/api/health" -o /tmp/health.json
+          python3 - <<'PY'
+          import hashlib,json,subprocess
+          x=json.load(open('/tmp/health.json',encoding='utf-8'))
+          lock=json.load(open('.github/m1a4-final-production-lock.json',encoding='utf-8'))
+          expected={
+            'ok':True,
+            'service':'grandmastrolog-delivery-runtime',
+            'stage':'M1A-4',
+            'mode':'fail-closed',
+            'delivery_boundary':'present',
+            'raw_delivery_allowed':False,
+            'structured_contract_enabled':True,
+            'canonical_renderer_enabled':True,
+            'trust_boundary_enabled':True,
+            'privileged_surface_authentication':'gm_api_secret_hmac_v1',
+            'trusted_evidence_provenance_required':True,
+            'delivery_validator_enabled':True,
+            'final_delivery_authorized':True,
+            'next_stage':None
+          }
+          for k,v in expected.items(): assert x.get(k)==v,(k,x.get(k),v)
+          files=[
+            'delivery_runtime/api/delivery.js','delivery_runtime/api/health.js','delivery_runtime/api/model-natal.js',
+            'delivery_runtime/api/render-natal.js','delivery_runtime/api/validate-natal.js',
+            'delivery_runtime/contracts/gm-natal-semantic-v1.schema.json','delivery_runtime/lib/delivery-validator.js',
+            'delivery_runtime/lib/element-visual.js','delivery_runtime/lib/foundation.js','delivery_runtime/lib/groq-binding.js',
+            'delivery_runtime/lib/model-binding.js','delivery_runtime/lib/natal-contract.js','delivery_runtime/lib/natal-renderer.js',
+            'delivery_runtime/lib/schema-runtime.js','delivery_runtime/lib/trust-boundary.js','delivery_runtime/package.json',
+            'delivery_runtime/public/elements/ates.png','delivery_runtime/public/elements/hava.png',
+            'delivery_runtime/public/elements/su.png','delivery_runtime/public/elements/toprak.png','delivery_runtime/vercel.json'
+          ]
+          local={p:subprocess.check_output(['git','hash-object',p],text=True).strip() for p in files}
+          canonical=''.join(f'{p}={local[p]}\n' for p in sorted(local))
+          fingerprint=hashlib.sha256(canonical.encode()).hexdigest()
+          provenance=x.get('source_provenance') or {}
+          deployment=x.get('deployment_provenance') or {}
+          transport=x.get('runtime_transport') or {}
+          provenance_blob=subprocess.check_output(['git','hash-object','delivery_runtime/lib/source-provenance.js'],text=True).strip()
+          assert fingerprint==lock['source_fingerprint']==provenance.get('fingerprint')
+          assert provenance.get('algorithm')=='git-blob-sha1-manifest-v1'
+          assert provenance.get('files')==local
+          assert provenance_blob==lock['source_provenance_blob_sha']
+          assert deployment.get('deployment_id')==lock['deployment_id']
+          assert deployment.get('project_id')==lock['project_id']
+          assert deployment.get('environment')=='production'
+          assert transport.get('runtime_source_commit')==lock['runtime_source_commit']
+          PY
+
+      - name: Require live trust material
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GM_API_SECRET:-}" || { echo 'BLOCKED: GITHUB_ACTIONS_GM_API_SECRET_MISSING'; exit 1; }
+
+      - name: Build canonical live fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const {availability,bindingInput,validPayload,clone}=require('./delivery_runtime/tests/helpers');
+          const av=availability();
+          const binding=bindingInput(av);
+          const payload=validPayload(av);
+          fs.writeFileSync('/tmp/valid.json',JSON.stringify({binding_input:binding,semantic_payload:payload}));
+          fs.writeFileSync('/tmp/model.json',JSON.stringify(binding));
+          const bad=clone(payload); bad.pre_seal_sections[0].body_paragraphs=['> *Hat: escape*'];
+          fs.writeFileSync('/tmp/bad.json',JSON.stringify({binding_input:binding,semantic_payload:bad}));
+          const missing=clone(binding); missing.verified_evidence.pop();
+          fs.writeFileSync('/tmp/missing-evidence.json',JSON.stringify({binding_input:missing,semantic_payload:payload}));
+          NODE
+
+      - name: Live trust boundary and final delivery adversarial gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          seal() {
+            local route="$1"; local file="$2"; local timestamp="${3:-}"
+            node - "$route" "$file" "$timestamp" <<'NODE'
+          const fs=require('node:fs');
+          const {signTrustedRequest}=require('./delivery_runtime/lib/trust-boundary');
+          const body=JSON.parse(fs.readFileSync(process.argv[3],'utf8'));
+          const supplied=process.argv[4];
+          const s=signTrustedRequest({secret:process.env.GM_API_SECRET,routeId:process.argv[2],timestamp:supplied?Number(supplied):undefined,body});
+          process.stdout.write(`${s.timestamp} ${s.signature}`);
+          NODE
+          }
+          post_sealed() {
+            local route="$1"; local file="$2"; local out="$3"; local ts sig
+            read -r ts sig <<< "$(seal "$route" "$file")"
+            curl -sS -o "$out" -w '%{http_code}' -X POST "$BASE_URL/api/$route" \
+              -H 'content-type: application/json' -H "authorization: Bearer $GM_API_SECRET" \
+              -H 'x-gm-evidence-source: grandmastrolog-api' -H "x-gm-evidence-timestamp: $ts" \
+              -H "x-gm-evidence-signature: $sig" --data-binary "@$file"
+          }
+
+          STATUS=$(curl -sS -o /tmp/unauth.json -w '%{http_code}' -X POST "$BASE_URL/api/delivery" -H 'content-type: application/json' --data-binary @/tmp/valid.json)
+          test "$STATUS" = '401'
+
+          node - <<'NODE'
+          const fs=require('node:fs'); const base=JSON.parse(fs.readFileSync('/tmp/valid.json'));
+          for (const [name,extra] of Object.entries({raw:{raw_model_output:'# raw'},flags:{validated:true,verified:true},render:{render:{canonical_markdown:'# fake'}},prov:{provenance:{deployment_id:'dpl_fake'}},stale:{accepted_envelope:{validated:true}}})) {
+            fs.writeFileSync(`/tmp/${name}.json`,JSON.stringify({...base,...extra}));
+          }
+          NODE
+          for name in raw flags render prov stale; do
+            STATUS=$(post_sealed delivery "/tmp/$name.json" "/tmp/$name-out.json")
+            test "$STATUS" = '400'
+            python3 - "$name" <<'PY'
+          import json,sys
+          x=json.load(open('/tmp/'+sys.argv[1]+'-out.json'))
+          assert x['code']=='UNKNOWN_FIELD'
+          assert 'raw_model_output' not in json.dumps(x)
+          PY
+          done
+
+          STATUS=$(post_sealed delivery /tmp/missing-evidence.json /tmp/missing-out.json)
+          test "$STATUS" = '422'
+
+          NOW="$(date +%s)"; STALE="$((NOW-301))"
+          read -r TS SIG <<< "$(seal delivery /tmp/valid.json "$STALE")"
+          STATUS=$(curl -sS -o /tmp/stale-trust.json -w '%{http_code}' -X POST "$BASE_URL/api/delivery" \
+            -H 'content-type: application/json' -H "authorization: Bearer $GM_API_SECRET" \
+            -H 'x-gm-evidence-source: grandmastrolog-api' -H "x-gm-evidence-timestamp: $TS" \
+            -H "x-gm-evidence-signature: $SIG" --data-binary @/tmp/valid.json)
+          test "$STATUS" = '403'
+          python3 - <<'PY'
+          import json
+          assert json.load(open('/tmp/stale-trust.json'))['code']=='TRUST_PROVENANCE_STALE'
+          PY
+
+          for n in 1 2; do
+            STATUS=$(post_sealed delivery /tmp/valid.json "/tmp/final$n.json")
+            test "$STATUS" = '200'
+          done
+          python3 - <<'PY'
+          import json,re
+          a=json.load(open('/tmp/final1.json')); b=json.load(open('/tmp/final2.json'))
+          assert a==b
+          assert a['ok'] is True and a['delivery_validator_enabled'] is True and a['final_delivery_authorized'] is True
+          d=a['delivery']; m=d['canonical_markdown']
+          assert d['contract_version']=='gm.natal.v1'
+          assert d['delivery_state']=='final_delivery_validated'
+          assert re.fullmatch(r'[a-f0-9]{64}',d['contract_sha256'])
+          assert re.fullmatch(r'[a-f0-9]{64}',d['canonical_markdown_sha256'])
+          assert re.fullmatch(r'[a-f0-9]{64}',d['delivery_binding_sha256'])
+          assert 'semantic_payload' not in json.dumps(a,ensure_ascii=False)
+          assert 'raw_model_output' not in json.dumps(a,ensure_ascii=False)
+          assert m.startswith('---\n> # • NATAL (DOĞUM) HARİTAN •\n')
+          PY
+
+      - name: M1A-2 and M1A-3 live regression on final candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          seal() {
+            local route="$1"; local file="$2"
+            node - "$route" "$file" <<'NODE'
+          const fs=require('node:fs'); const {signTrustedRequest}=require('./delivery_runtime/lib/trust-boundary');
+          const body=JSON.parse(fs.readFileSync(process.argv[3],'utf8'));
+          const s=signTrustedRequest({secret:process.env.GM_API_SECRET,routeId:process.argv[2],body});
+          process.stdout.write(`${s.timestamp} ${s.signature}`);
+          NODE
+          }
+          call() {
+            local route="$1" file="$2" out="$3" ts sig
+            read -r ts sig <<< "$(seal "$route" "$file")"
+            curl -sS -o "$out" -w '%{http_code}' -X POST "$BASE_URL/api/$route" \
+              -H 'content-type: application/json' -H "authorization: Bearer $GM_API_SECRET" \
+              -H 'x-gm-evidence-source: grandmastrolog-api' -H "x-gm-evidence-timestamp: $ts" \
+              -H "x-gm-evidence-signature: $sig" --data-binary "@$file"
+          }
+          test "$(call validate-natal /tmp/bad.json /tmp/bad-out.json)" = '422'
+          python3 - <<'PY'
+          import json
+          assert json.load(open('/tmp/bad-out.json'))['code']=='MARKDOWN_ESCAPE'
+          PY
+          for n in 1 2; do test "$(call render-natal /tmp/valid.json /tmp/render$n.json)" = '200'; done
+          python3 - <<'PY'
+          import json
+          a=json.load(open('/tmp/render1.json')); b=json.load(open('/tmp/render2.json'))
+          assert a==b
+          assert a['render']['final_delivery_authorized'] is False
+          assert a['render']['delivery_validator_enabled'] is False
+          PY
+
+      - name: Real Groq structured output through validator renderer and final delivery
+        shell: bash
+        run: |
+          set -euo pipefail
+          seal() {
+            local route="$1" file="$2"
+            node - "$route" "$file" <<'NODE'
+          const fs=require('node:fs'); const {signTrustedRequest}=require('./delivery_runtime/lib/trust-boundary');
+          const body=JSON.parse(fs.readFileSync(process.argv[3],'utf8'));
+          const s=signTrustedRequest({secret:process.env.GM_API_SECRET,routeId:process.argv[2],body});
+          process.stdout.write(`${s.timestamp} ${s.signature}`);
+          NODE
+          }
+          call() {
+            local route="$1" file="$2" out="$3" ts sig
+            read -r ts sig <<< "$(seal "$route" "$file")"
+            curl -sS -o "$out" -w '%{http_code}' -X POST "$BASE_URL/api/$route" \
+              -H 'content-type: application/json' -H "authorization: Bearer $GM_API_SECRET" \
+              -H 'x-gm-evidence-source: grandmastrolog-api' -H "x-gm-evidence-timestamp: $ts" \
+              -H "x-gm-evidence-signature: $sig" --data-binary "@$file"
+          }
+          test "$(call model-natal /tmp/model.json /tmp/model-out.json)" = '200'
+          python3 - <<'PY'
+          import json
+          model=json.load(open('/tmp/model-out.json')); binding=json.load(open('/tmp/model.json'))
+          assert model['ok'] is True and model['contract']['contract_version']=='gm.natal.v1'
+          json.dump({'binding_input':binding,'semantic_payload':model['contract']['semantic_payload']},open('/tmp/model-delivery.json','w'),ensure_ascii=False)
+          PY
+          test "$(call delivery /tmp/model-delivery.json /tmp/model-final.json)" = '200'
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/model-final.json'))
+          assert x['ok'] is True and x['delivery']['delivery_state']=='final_delivery_validated'
+          raw=json.dumps(x,ensure_ascii=False)
+          assert 'semantic_payload' not in raw and 'raw_model_output' not in raw
+          PY
+
+      - name: Method and unrelated API regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(curl -sS -o /tmp/a -w '%{http_code}' "$BASE_URL/api/delivery")" = '405'
+          test "$(curl -sS -o /tmp/b -w '%{http_code}' "$BASE_URL/api/validate-natal")" = '405'
+          test "$(curl -sS -o /tmp/c -w '%{http_code}' "$BASE_URL/api/model-natal")" = '405'
+          test "$(curl -sS -o /tmp/d -w '%{http_code}' "$BASE_URL/api/render-natal")" = '405'
+          curl -fsS "$EXISTING_API_URL/health" -o /tmp/existing-health.json
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/existing-health.json'))
+          assert x.get('ok') is True
+          assert (x.get('swisseph') or {}).get('ok') is True
+          PY
