@@ -227,7 +227,7 @@ jobs:
           import json,sys
           try: x=json.load(open('/tmp/final'+sys.argv[2]+'.json',encoding='utf-8'))
           except Exception: x={}
-          raise SystemExit("SAFE_GATE valid_status="+sys.argv[1]+" code="+str(x.get('code')))
+          raise SystemExit("SAFE_GATE valid_status="+sys.argv[1]+" code="+str(x.get('code'))+" path="+str(x.get('path')))
           PY
             fi
           done
