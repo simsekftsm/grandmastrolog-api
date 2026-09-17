@@ -1,0 +1,44 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "grandmastrolog-api-staging",
+  "main": "cloudflare/worker.js",
+  "compatibility_date": "2026-09-18",
+  "containers": [
+    {
+      "class_name": "GrandMastrologContainer",
+      "image": "./Dockerfile",
+      "max_instances": 1,
+      "instance_type": "basic"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "GM_CONTAINER",
+        "class_name": "GrandMastrologContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "GrandMastrologContainer"
+      ]
+    }
+  ],
+  "vars": {
+    "GROQ_MODEL": "llama-3.3-70b-versatile",
+    "GM_DELIVERY_RUNTIME_URL": "https://grandmastrolog-delivery-runtime.vercel.app/api/e2e-natal",
+    "GM_LEGACY_INTERNAL_PORT": "3101",
+    "GM_DELIVERY_TIMEOUT_MS": "70000",
+    "REPORT_RENDER_TIMEOUT_MS": "60000"
+  },
+  "secrets": {
+    "required": [
+      "GM_API_SECRET",
+      "GROQ_API_KEY",
+      "DATABASE_URL"
+    ]
+  }
+}
