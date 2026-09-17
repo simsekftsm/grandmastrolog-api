@@ -198,7 +198,35 @@ jobs:
               x=json.load(open('/tmp/e2e-out.json',encoding='utf-8'))
           except Exception:
               x={}
-          raise SystemExit("SAFE_E2E_DIAG "+json.dumps({"status":sys.argv[1],"ok":x.get("ok"),"code":x.get("code"),"keys":sorted(x.keys())},sort_keys=True))
+          print("SAFE_E2E_DIAG "+json.dumps({"status":sys.argv[1],"ok":x.get("ok"),"code":x.get("code"),"keys":sorted(x.keys())},sort_keys=True))
+          PY
+            node - <<'NODE'
+          const fs=require('node:fs');
+          const {buildNatalBindingInput}=require('./gm_integration/natal-evidence.js');
+          const input=JSON.parse(fs.readFileSync('/tmp/synthetic-natal.json','utf8'));
+          const evidence=buildNatalBindingInput(input);
+          fs.writeFileSync('/tmp/direct-e2e.json',JSON.stringify({binding_input:evidence.binding_input}));
+          NODE
+            read -r TS SIG <<< "$(node - <<'NODE'
+          const fs=require('node:fs');
+          const {signTrustedRequest}=require('./delivery_runtime/lib/trust-boundary');
+          const body=JSON.parse(fs.readFileSync('/tmp/direct-e2e.json','utf8'));
+          const s=signTrustedRequest({secret:process.env.GM_API_SECRET,routeId:'e2e-natal',body});
+          process.stdout.write(s.timestamp+' '+s.signature);
+          NODE
+          )"
+            DIRECT_STATUS=$(curl -sS -o /tmp/direct-e2e-out.json -w '%{http_code}' -X POST "$VERCEL_URL/api/e2e-natal" \
+              -H 'content-type: application/json' -H "authorization: Bearer $GM_API_SECRET" \
+              -H 'x-gm-evidence-source: grandmastrolog-api' -H "x-gm-evidence-timestamp: $TS" \
+              -H "x-gm-evidence-signature: $SIG" --data-binary @/tmp/direct-e2e.json)
+            python3 - "$DIRECT_STATUS" <<'PY'
+          import json,sys
+          try: x=json.load(open('/tmp/direct-e2e-out.json',encoding='utf-8'))
+          except Exception: x={}
+          raise SystemExit("SAFE_DIRECT_E2E_DIAG "+json.dumps({
+              "status":sys.argv[1],"ok":x.get("ok"),"code":x.get("code"),
+              "upstream_status":x.get("upstream_status"),"provider":x.get("upstream_provider")
+          },sort_keys=True))
           PY
           fi
           python3 - <<'PY'
