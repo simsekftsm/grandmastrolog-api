@@ -4,7 +4,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const validateNatal = require('../api/validate-natal');
 const modelNatal = require('../api/model-natal');
+const { signTrustedRequest } = require('../lib/trust-boundary');
 const { bindingInput, validPayload } = require('./helpers');
+
+const TEST_SECRET = 'unit-test-gm-secret-not-production';
+process.env.GM_API_SECRET = TEST_SECRET;
 
 function fakeResponse() {
   const headers = new Map();
@@ -18,9 +22,24 @@ function fakeResponse() {
   };
 }
 
+function trustedRequest(routeId, body, method = 'POST') {
+  const seal = signTrustedRequest({ secret: TEST_SECRET, method, routeId, body });
+  return {
+    method,
+    body,
+    headers: {
+      authorization: `Bearer ${TEST_SECRET}`,
+      'x-gm-evidence-source': seal.source,
+      'x-gm-evidence-timestamp': seal.timestamp,
+      'x-gm-evidence-signature': seal.signature
+    }
+  };
+}
+
 test('validate-natal accepts canonical semantic payload without rendering', async () => {
+  const body = { binding_input: bindingInput(), semantic_payload: validPayload() };
   const res = fakeResponse();
-  await validateNatal({ method:'POST', body:{ binding_input: bindingInput(), semantic_payload: validPayload() } }, res);
+  await validateNatal(trustedRequest('validate-natal', body), res);
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.ok, true);
   assert.equal(res.body.contract.render_state, 'blocked_until_m1a3');
@@ -29,8 +48,9 @@ test('validate-natal accepts canonical semantic payload without rendering', asyn
 
 test('validate-natal rejects raw markup escape', async () => {
   const payload = validPayload(); payload.pre_seal_sections[0].body_paragraphs = ['> ## • PROFİLİN •'];
+  const body = { binding_input: bindingInput(), semantic_payload: payload };
   const res = fakeResponse();
-  await validateNatal({ method:'POST', body:{ binding_input: bindingInput(), semantic_payload: payload } }, res);
+  await validateNatal(trustedRequest('validate-natal', body), res);
   assert.equal(res.statusCode, 422);
   assert.equal(res.body.code, 'MARKDOWN_ESCAPE');
 });
@@ -46,8 +66,9 @@ test('model-natal fails closed when Groq secret is absent even if an OpenAI secr
   const oldOpenAI = process.env.OPENAI_API_KEY;
   delete process.env.GROQ_API_KEY;
   process.env.OPENAI_API_KEY = 'must-not-be-used';
+  const body = bindingInput();
   const res = fakeResponse();
-  await modelNatal({ method:'POST', body: bindingInput() }, res);
+  await modelNatal(trustedRequest('model-natal', body), res);
   assert.equal(res.statusCode, 503);
   assert.equal(res.body.code, 'RUNTIME_SECRET_OR_MODEL_BINDING_UNAVAILABLE');
   if (oldGroq !== undefined) process.env.GROQ_API_KEY = oldGroq; else delete process.env.GROQ_API_KEY;
@@ -59,8 +80,9 @@ test('model-natal fails closed before upstream call when Groq model override vio
   const oldModel = process.env.GROQ_MODEL;
   process.env.GROQ_API_KEY = 'test-secret';
   process.env.GROQ_MODEL = 'wrong/model';
+  const body = bindingInput();
   const res = fakeResponse();
-  await modelNatal({ method:'POST', body: bindingInput() }, res);
+  await modelNatal(trustedRequest('model-natal', body), res);
   assert.equal(res.statusCode, 503);
   assert.equal(res.body.code, 'RUNTIME_MODEL_FREEZE_VIOLATION');
   assert.equal(res.body.expected_model, 'openai/gpt-oss-120b');

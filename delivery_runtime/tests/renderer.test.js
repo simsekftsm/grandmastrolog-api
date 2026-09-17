@@ -14,6 +14,7 @@ const {
   RETURN_TO_USER_INTENT
 } = require('../lib/natal-renderer');
 const { availability, bindingInput, validPayload, clone } = require('./helpers');
+const { trustedRequest } = require('./trust-test-helper');
 
 function fakeResponse() {
   const headers = new Map();
@@ -188,11 +189,11 @@ test('MUTANT raw semantic JSON never leaks through Element Hat', () => {
 });
 
 test('MUTANT raw model output key cannot enter renderer request', async () => {
-  const f=fixture(); const res=fakeResponse(); await renderNatal({method:'POST',body:{binding_input:f.binding,semantic_payload:f.payload,raw_model_output:'# raw'}},res); assert.equal(res.statusCode,400); assert.equal(res.body.code,'UNKNOWN_FIELD');
+  const f=fixture(); const res=fakeResponse(); const body={binding_input:f.binding,semantic_payload:f.payload,raw_model_output:'# raw'}; await renderNatal(trustedRequest('render-natal', body),res); assert.equal(res.statusCode,400); assert.equal(res.body.code,'UNKNOWN_FIELD');
 });
 
 test('MUTANT manual/fake validated envelope is rejected at API boundary', async () => {
-  const res=fakeResponse(); await renderNatal({method:'POST',body:{contract:{contract_version:'gm.natal.v1'},binding_input:{},semantic_payload:{}}},res); assert.equal(res.statusCode,400); assert.equal(res.body.code,'UNKNOWN_FIELD');
+  const res=fakeResponse(); const body={contract:{contract_version:'gm.natal.v1'},binding_input:{},semantic_payload:{}}; await renderNatal(trustedRequest('render-natal', body),res); assert.equal(res.statusCode,400); assert.equal(res.body.code,'UNKNOWN_FIELD');
 });
 
 test('MUTANT semantic text rewrite is killed', () => {
@@ -220,7 +221,7 @@ test('MUTANT renderer fail-open state is killed', () => {
 });
 
 test('render-natal API returns acceptance render only and no semantic envelope', async () => {
-  const f=fixture(); const res=fakeResponse(); await renderNatal({method:'POST',body:{binding_input:f.binding,semantic_payload:f.payload}},res); assert.equal(res.statusCode,200); assert.equal(res.body.ok,true); assert.equal(res.body.render.final_delivery_authorized,false); const raw=JSON.stringify(res.body); assert.equal(raw.includes('semantic_payload'),false); assert.equal(raw.includes('evidence_bindings'),false);
+  const f=fixture(); const res=fakeResponse(); const body={binding_input:f.binding,semantic_payload:f.payload}; await renderNatal(trustedRequest('render-natal', body),res); assert.equal(res.statusCode,200); assert.equal(res.body.ok,true); assert.equal(res.body.render.final_delivery_authorized,false); const raw=JSON.stringify(res.body); assert.equal(raw.includes('semantic_payload'),false); assert.equal(raw.includes('evidence_bindings'),false);
 });
 
 test('render-natal API rejects non-POST', async () => { const res=fakeResponse(); await renderNatal({method:'GET'},res); assert.equal(res.statusCode,405); assert.equal(res.body.code,'METHOD_NOT_ALLOWED'); });

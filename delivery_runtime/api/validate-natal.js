@@ -1,6 +1,7 @@
 'use strict';
 
 const { applySecurityHeaders } = require('../lib/foundation');
+const { enforceTrustedRequest } = require('../lib/trust-boundary');
 const {
   ContractValidationError,
   SchemaValidationError,
@@ -14,6 +15,7 @@ module.exports = async function validateNatal(req, res) {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ ok: false, code: 'METHOD_NOT_ALLOWED' });
   }
+  if (!enforceTrustedRequest(req, res, 'validate-natal')) return;
   try {
     const outer = req.body;
     if (!outer || typeof outer !== 'object' || Array.isArray(outer)) {

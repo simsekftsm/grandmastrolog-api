@@ -19,15 +19,18 @@ function fakeResponse() {
   };
 }
 
-test('M1A-3 status preserves structured contract and enables only canonical renderer', () => {
+test('M1A-4 trust-boundary status preserves M1A-2 and M1A-3 while final delivery stays closed', () => {
   const body = statusPayload();
   assert.equal(body.ok, true);
-  assert.equal(body.stage, 'M1A-3');
+  assert.equal(body.stage, 'M1A-4-TRUST-BOUNDARY');
   assert.equal(body.mode, 'fail-closed');
   assert.equal(body.delivery_boundary, 'present');
   assert.equal(body.raw_delivery_allowed, false);
   assert.equal(body.structured_contract_enabled, true);
   assert.equal(body.canonical_renderer_enabled, true);
+  assert.equal(body.trust_boundary_enabled, true);
+  assert.equal(body.privileged_surface_authentication, 'gm_api_secret_hmac_v1');
+  assert.equal(body.trusted_evidence_provenance_required, true);
   assert.equal(body.delivery_validator_enabled, false);
   assert.equal(body.final_delivery_authorized, false);
   assert.equal(body.next_stage, 'M1A-4');
@@ -40,6 +43,7 @@ test('blocked payload never authorizes raw or final delivery', () => {
   assert.equal(body.raw_delivery_allowed, false);
   assert.equal(body.structured_contract_enabled, true);
   assert.equal(body.canonical_renderer_enabled, true);
+  assert.equal(body.trust_boundary_enabled, true);
   assert.equal(body.delivery_validator_enabled, false);
   assert.equal(body.final_delivery_authorized, false);
 });
@@ -49,6 +53,7 @@ test('health GET returns 200 with no-store headers', async () => {
   await health({ method: 'GET' }, res);
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.ok, true);
+  assert.equal(res.body.trust_boundary_enabled, true);
   assert.equal(res.getHeader('cache-control'), 'no-store');
   assert.equal(res.getHeader('x-content-type-options'), 'nosniff');
 });
