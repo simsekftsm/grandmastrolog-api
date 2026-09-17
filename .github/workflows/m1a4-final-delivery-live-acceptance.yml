@@ -191,7 +191,9 @@ jobs:
           import json,sys
           x=json.load(open('/tmp/'+sys.argv[1]+'-out.json'))
           assert x['code']=='UNKNOWN_FIELD'
-          assert 'raw_model_output' not in json.dumps(x)
+          raw=json.dumps(x,ensure_ascii=False)
+          assert '# raw' not in raw
+          assert set(x).issubset({'ok','code','path'})
           PY
           done
 
