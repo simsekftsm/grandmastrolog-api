@@ -1,0 +1,248 @@
+name: GrandMastrolog REAL END-TO-END Integration Acceptance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-e2e-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RAILWAY_URL: https://grandmastrolog-api-production.up.railway.app
+      VERCEL_URL: https://grandmastrolog-delivery-runtime.vercel.app
+      EXPECTED_VERCEL_PROJECT_ID: prj_XhDus3tQsyiLxrPccbQteXLwbB2a
+      EXPECTED_MAIN_HEAD: c71f752c9d7c426c056e8e912c767465c6599d91
+      GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+
+      - name: Freeze PR and main boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$EXPECTED"
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.draft }}' = 'true'
+            test '${{ github.event.pull_request.base.ref }}' = 'main'
+            test '${{ github.event.pull_request.head.ref }}' = 'm1a-1-delivery-runtime-foundation'
+          fi
+          git fetch --no-tags --depth=1 origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_MAIN_HEAD"
+
+      - name: Install deterministic Railway calculation dependencies
+        run: npm ci
+
+      - name: Server-owned Swiss Ephemeris evidence tests
+        run: node --test integration_tests/natal-evidence.test.mjs
+
+      - name: Same-request delivery orchestration and fail-closed tests
+        run: node --test integration_tests/e2e-runtime.test.mjs
+
+      - name: Existing M1A-2 M1A-3 M1A-4 local regression remains 108 of 108
+        working-directory: delivery_runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap tests/*.test.js | tee /tmp/m1a4-regression.tap
+          TESTS="$(awk '/^# tests /{print $3}' /tmp/m1a4-regression.tap | tail -1)"
+          PASS="$(awk '/^# pass /{print $3}' /tmp/m1a4-regression.tap | tail -1)"
+          FAIL="$(awk '/^# fail /{print $3}' /tmp/m1a4-regression.tap | tail -1)"
+          test "$TESTS" = '108'
+          test "$PASS" = '108'
+          test "$FAIL" = '0'
+
+      - name: Action surface is wired only to final validated Natal delivery
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '^  /natal/deliver:' openapi.yaml
+          grep -q 'operationId: deliverNatal' openapi.yaml
+          grep -q 'final_delivery_validated' openapi.yaml
+          grep -q 'CMD \["node", "integration-server.js"\]' Dockerfile
+          grep -q "url.pathname === '/natal/deliver'" integration-server.js
+          grep -q "enforceTrustedRequest(req, res, 'e2e-natal')" delivery_runtime/api/e2e-natal.js
+          grep -q 'validateFinalDelivery(bindingInput, canonicalPayload)' delivery_runtime/api/e2e-natal.js
+
+      - name: Require production acceptance lock and live trust material
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GM_API_SECRET:-}" || { echo 'BLOCKED: GITHUB_ACTIONS_GM_API_SECRET_MISSING'; exit 1; }
+          test -f .github/real-e2e-production-lock.json || { echo 'BLOCKED: REAL_E2E_PRODUCTION_LOCK_MISSING'; exit 1; }
+          python3 - <<'PY'
+          import json
+          x=json.load(open('.github/real-e2e-production-lock.json',encoding='utf-8'))
+          required={
+            'runtime_source_commit','railway_deployment_id','vercel_deployment_id','vercel_project_id',
+            'm1a4_source_fingerprint','integration_fingerprint','integration_files'
+          }
+          assert set(x)==required
+          assert len(x['runtime_source_commit'])==40
+          assert x['railway_deployment_id']
+          assert x['vercel_deployment_id'].startswith('dpl_')
+          assert x['vercel_project_id']=='prj_XhDus3tQsyiLxrPccbQteXLwbB2a'
+          assert len(x['m1a4_source_fingerprint'])==64
+          assert len(x['integration_fingerprint'])==64
+          assert isinstance(x['integration_files'],dict) and len(x['integration_files'])==5
+          PY
+
+      - name: Verify integration fingerprint and lock-only successor commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_SOURCE="$(python3 -c "import json; print(json.load(open('.github/real-e2e-production-lock.json'))['runtime_source_commit'])")"
+          git fetch --no-tags --depth=1 origin "$RUNTIME_SOURCE"
+          mapfile -t CHANGED < <(git diff --name-only "$RUNTIME_SOURCE" HEAD)
+          for f in "${CHANGED[@]}"; do
+            case "$f" in
+              .github/m1a4-final-production-lock.json|.github/real-e2e-production-lock.json) ;;
+              *) echo "Unexpected post-deployment mutation: $f"; exit 1 ;;
+            esac
+          done
+          python3 - "$RUNTIME_SOURCE" <<'PY'
+          import hashlib,json,subprocess,sys
+          commit=sys.argv[1]
+          lock=json.load(open('.github/real-e2e-production-lock.json',encoding='utf-8'))
+          paths=[
+            'Dockerfile','integration-server.js','gm_integration/natal-evidence.js',
+            'openapi.yaml','delivery_runtime/api/e2e-natal.js'
+          ]
+          actual={p:subprocess.check_output(['git','rev-parse',f'{commit}:{p}'],text=True).strip() for p in paths}
+          assert actual==lock['integration_files'],(actual,lock['integration_files'])
+          canonical=''.join(f'{p}={actual[p]}\n' for p in sorted(actual))
+          canonical+=f"m1a4_source_fingerprint={lock['m1a4_source_fingerprint']}\n"
+          fingerprint=hashlib.sha256(canonical.encode()).hexdigest()
+          assert fingerprint==lock['integration_fingerprint'],(fingerprint,lock['integration_fingerprint'])
+          PY
+
+      - name: Vercel production is accepted M1A-4 runtime from exact source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "$VERCEL_URL/api/health" -o /tmp/vercel-health.json
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/vercel-health.json',encoding='utf-8'))
+          lock=json.load(open('.github/real-e2e-production-lock.json',encoding='utf-8'))
+          assert x['ok'] is True
+          assert x['stage']=='M1A-4'
+          assert x['delivery_validator_enabled'] is True
+          assert x['final_delivery_authorized'] is True
+          assert x['raw_delivery_allowed'] is False
+          assert x['source_provenance']['fingerprint']==lock['m1a4_source_fingerprint']
+          assert x['deployment_provenance']['deployment_id']==lock['vercel_deployment_id']
+          assert x['deployment_provenance']['project_id']==lock['vercel_project_id']
+          assert x['deployment_provenance']['environment']=='production'
+          assert x['runtime_transport']['runtime_source_commit']==lock['runtime_source_commit']
+          PY
+
+      - name: Railway production is exact integration source and legacy API is alive
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "$RAILWAY_URL/integration/health" -o /tmp/railway-integration-health.json
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/railway-integration-health.json',encoding='utf-8'))
+          lock=json.load(open('.github/real-e2e-production-lock.json',encoding='utf-8'))
+          assert x['ok'] is True
+          assert x['legacy_ready'] is True
+          assert x['evidence_engine']=='grandmastrolog_swisseph_natal_v1'
+          assert x['railway_commit']==lock['runtime_source_commit']
+          assert x['railway_deployment_id']==lock['railway_deployment_id']
+          PY
+          curl -fsS "$RAILWAY_URL/health" -o /tmp/legacy-health.json
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/legacy-health.json',encoding='utf-8'))
+          assert x['ok'] is True
+          assert x['service']=='grandmastrolog-api'
+          assert x['swisseph']['ok'] is True
+          PY
+
+      - name: One physical synthetic Natal request traverses the whole production chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/synthetic-natal.json <<'JSON'
+          {
+            "request_id": "production-synthetic-e2e-001",
+            "birth": {
+              "date": "2000-01-01",
+              "time": "12:00:00",
+              "timezone": "Europe/Istanbul",
+              "latitude": 39.9208,
+              "longitude": 32.8541,
+              "district": "SyntheticDistrict",
+              "city": "SyntheticCity"
+            }
+          }
+          JSON
+          STATUS=$(curl -sS -o /tmp/e2e-out.json -w '%{http_code}' -X POST "$RAILWAY_URL/natal/deliver" \
+            -H 'content-type: application/json' -H "x-gm-secret: $GM_API_SECRET" \
+            --data-binary @/tmp/synthetic-natal.json)
+          test "$STATUS" = '200'
+          python3 - <<'PY'
+          import json,re
+          x=json.load(open('/tmp/e2e-out.json',encoding='utf-8'))
+          lock=json.load(open('.github/real-e2e-production-lock.json',encoding='utf-8'))
+          assert x['ok'] is True
+          assert x['request_id']=='production-synthetic-e2e-001'
+          assert x['contract_version']=='gm.natal.v1'
+          assert x['delivery_state']=='final_delivery_validated'
+          assert x['delivery_validator_enabled'] is True
+          assert x['final_delivery_authorized'] is True
+          assert re.fullmatch(r'[a-f0-9]{64}',x['evidence_sha256'])
+          assert isinstance(x['output'],str) and x['output'].startswith('---\n> # • NATAL (DOĞUM) HARİTAN •\n')
+          p=x['provenance']
+          assert p['railway']['commit']==lock['runtime_source_commit']
+          assert p['railway']['deployment_id']==lock['railway_deployment_id']
+          assert p['delivery_runtime']['deployment_id']==lock['vercel_deployment_id']
+          assert p['delivery_runtime']['source_fingerprint']==lock['m1a4_source_fingerprint']
+          for key in ['contract_sha256','canonical_markdown_sha256','delivery_binding_sha256']:
+            assert re.fullmatch(r'[a-f0-9]{64}',p[key])
+          serialized=json.dumps(x,ensure_ascii=False)
+          for forbidden in ['raw_model_output','semantic_payload','binding_input','verified_evidence']:
+            assert forbidden not in serialized
+          PY
+
+      - name: Production trust and astro-source failures stay fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS=$(curl -sS -o /tmp/noauth.json -w '%{http_code}' -X POST "$RAILWAY_URL/natal/deliver" \
+            -H 'content-type: application/json' --data-binary @/tmp/synthetic-natal.json)
+          test "$STATUS" = '401'
+          python3 - <<'PY'
+          import json
+          assert json.load(open('/tmp/noauth.json'))['code']=='UNAUTHORIZED'
+          PY
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/synthetic-natal.json'))
+          x['request_id']='production-synthetic-e2e-invalid-source'
+          x['birth']['timezone']='Invalid/Timezone'
+          json.dump(x,open('/tmp/bad-source.json','w'))
+          PY
+          STATUS=$(curl -sS -o /tmp/bad-source-out.json -w '%{http_code}' -X POST "$RAILWAY_URL/natal/deliver" \
+            -H 'content-type: application/json' -H "x-gm-secret: $GM_API_SECRET" --data-binary @/tmp/bad-source.json)
+          test "$STATUS" = '422'
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/bad-source-out.json'))
+          assert x['code']=='ASTRO_SOURCE_FAIL'
+          assert 'raw_model_output' not in json.dumps(x)
+          PY
+
+      - name: Acceptance summary
+        run: echo 'REAL END-TO-END INTEGRATION ACCEPTANCE PASS'
