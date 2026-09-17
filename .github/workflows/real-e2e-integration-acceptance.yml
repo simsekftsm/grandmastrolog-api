@@ -39,8 +39,8 @@ jobs:
           git fetch --no-tags --depth=1 origin main
           test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_MAIN_HEAD"
 
-      - name: Install deterministic Railway calculation dependencies
-        run: npm ci
+      - name: Install Railway calculation dependencies
+        run: npm install --no-audit --no-fund
 
       - name: Server-owned Swiss Ephemeris evidence tests
         run: node --test integration_tests/natal-evidence.test.mjs
