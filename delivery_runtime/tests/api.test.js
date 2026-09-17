@@ -89,3 +89,48 @@ test('model-natal fails closed before upstream call when Groq model override vio
   if (oldGroq !== undefined) process.env.GROQ_API_KEY = oldGroq; else delete process.env.GROQ_API_KEY;
   if (oldModel !== undefined) process.env.GROQ_MODEL = oldModel; else delete process.env.GROQ_MODEL;
 });
+
+test('model-natal upstream failure fails closed without exposing raw provider output', async () => {
+  const oldGroq = process.env.GROQ_API_KEY;
+  const oldModel = process.env.GROQ_MODEL;
+  const oldFetch = global.fetch;
+  process.env.GROQ_API_KEY = 'test-secret';
+  delete process.env.GROQ_MODEL;
+  global.fetch = async () => ({ ok: false, status: 503 });
+  try {
+    const body = bindingInput();
+    const res = fakeResponse();
+    await modelNatal(trustedRequest('model-natal', body), res);
+    assert.equal(res.statusCode, 502);
+    assert.deepEqual(res.body, { ok: false, code: 'MODEL_BINDING_UPSTREAM_FAIL', upstream_provider: 'groq', upstream_status: 503 });
+    assert.equal(JSON.stringify(res.body).includes('raw'), false);
+  } finally {
+    global.fetch = oldFetch;
+    if (oldGroq !== undefined) process.env.GROQ_API_KEY = oldGroq; else delete process.env.GROQ_API_KEY;
+    if (oldModel !== undefined) process.env.GROQ_MODEL = oldModel; else delete process.env.GROQ_MODEL;
+  }
+});
+
+test('model-natal upstream timeout fails closed and cannot become delivery output', async () => {
+  const oldGroq = process.env.GROQ_API_KEY;
+  const oldModel = process.env.GROQ_MODEL;
+  const oldFetch = global.fetch;
+  process.env.GROQ_API_KEY = 'test-secret';
+  delete process.env.GROQ_MODEL;
+  global.fetch = async () => {
+    const error = new Error('timed out');
+    error.name = 'TimeoutError';
+    throw error;
+  };
+  try {
+    const body = bindingInput();
+    const res = fakeResponse();
+    await modelNatal(trustedRequest('model-natal', body), res);
+    assert.equal(res.statusCode, 504);
+    assert.deepEqual(res.body, { ok: false, code: 'MODEL_BINDING_TIMEOUT', upstream_provider: 'groq' });
+  } finally {
+    global.fetch = oldFetch;
+    if (oldGroq !== undefined) process.env.GROQ_API_KEY = oldGroq; else delete process.env.GROQ_API_KEY;
+    if (oldModel !== undefined) process.env.GROQ_MODEL = oldModel; else delete process.env.GROQ_MODEL;
+  }
+});
