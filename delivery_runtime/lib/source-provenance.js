@@ -1,10 +1,9 @@
 'use strict';
 
-// Only files physically shipped in the Vercel M1A-4 runtime are represented here.
-// Tests, workflow files and repository-only lock documents are excluded.
+// Only files governed by the accepted M1A-4 delivery-runtime provenance surface are represented here.
+// The later real E2E integration endpoint is fingerprinted separately by its own acceptance gate.
 const FILES = Object.freeze({
   'delivery_runtime/api/delivery.js': '58c8ff9e97b7a02542d8d34afbcdbe8767752ee0',
-  'delivery_runtime/api/e2e-natal.js': 'c69272aa8cfd1b4e8c7e0187999674aeefaddc0e',
   'delivery_runtime/api/health.js': '536e3061a23bab293aa9ebf5cf2cb2b41ab2b772',
   'delivery_runtime/api/model-natal.js': '046d62aac226be26207283692d22cf646a67102e',
   'delivery_runtime/api/render-natal.js': '6e6e83ec0098b0cfde0e1f1aee2f7831a34a989f',
@@ -27,7 +26,7 @@ const FILES = Object.freeze({
   'delivery_runtime/vercel.json': '00df89d17927cd0872305e680cd2beb180ae6149'
 });
 
-const FINGERPRINT = '176b4c681a2ef250a21363628a2352ae2a97f7ab38d5cb7f4f162f861bf35e05';
+const FINGERPRINT = '577b259728a58ee562ee36f04c8c869ded6ad5c775c1f74a6b8b40d861c845a1';
 
 function sourceProvenance() {
   return {
