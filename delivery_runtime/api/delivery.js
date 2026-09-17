@@ -30,7 +30,7 @@ module.exports = async function delivery(req, res) {
       ok: false,
       code: 'FINAL_DELIVERY_NOT_AUTHORIZED',
       raw_delivery_allowed: false,
-      delivery_validator_enabled: true,
+      delivery_validator_enabled: false,
       final_delivery_authorized: false
     });
   }
@@ -50,12 +50,12 @@ module.exports = async function delivery(req, res) {
       return res.status(400).json({ ok: false, code: 'MISSING_REQUIRED_FIELD' });
     }
 
-    const delivery = validateFinalDelivery(outer.binding_input, outer.semantic_payload);
+    const finalDelivery = validateFinalDelivery(outer.binding_input, outer.semantic_payload);
     return res.status(200).json({
       ok: true,
       delivery_validator_enabled: true,
       final_delivery_authorized: true,
-      delivery
+      delivery: finalDelivery
     });
   } catch (error) {
     if (error instanceof DeliveryValidationError) {
