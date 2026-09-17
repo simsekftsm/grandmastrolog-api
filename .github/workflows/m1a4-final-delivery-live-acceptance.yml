@@ -217,24 +217,21 @@ jobs:
           python3 - <<'PY'
           import json,re
           a=json.load(open('/tmp/final1.json')); b=json.load(open('/tmp/final2.json'))
-          assert a==b
-          if a.get('ok') is not True or a.get('delivery_validator_enabled') is not True or a.get('final_delivery_authorized') is not True:
-              raise SystemExit("SAFE_DIAG "+json.dumps({
-                  "ok":a.get("ok"),
-                  "delivery_validator_enabled":a.get("delivery_validator_enabled"),
-                  "final_delivery_authorized":a.get("final_delivery_authorized"),
-                  "code":a.get("code"),
-                  "keys":sorted(a.keys())
-              },sort_keys=True))
-          d=a['delivery']; m=d['canonical_markdown']
-          assert d['contract_version']=='gm.natal.v1'
-          assert d['delivery_state']=='final_delivery_validated'
-          assert re.fullmatch(r'[a-f0-9]{64}',d['contract_sha256'])
-          assert re.fullmatch(r'[a-f0-9]{64}',d['canonical_markdown_sha256'])
-          assert re.fullmatch(r'[a-f0-9]{64}',d['delivery_binding_sha256'])
-          assert 'semantic_payload' not in json.dumps(a,ensure_ascii=False)
-          assert 'raw_model_output' not in json.dumps(a,ensure_ascii=False)
-          assert m.startswith('---\n> # • NATAL (DOĞUM) HARİTAN •\n')
+          if a != b: raise SystemExit("SAFE_DIAG response_nondeterministic")
+          if a.get('ok') is not True: raise SystemExit("SAFE_DIAG ok")
+          if a.get('delivery_validator_enabled') is not True: raise SystemExit("SAFE_DIAG delivery_validator_enabled")
+          if a.get('final_delivery_authorized') is not True: raise SystemExit("SAFE_DIAG final_delivery_authorized")
+          if 'delivery' not in a: raise SystemExit("SAFE_DIAG delivery_missing")
+          d=a['delivery']
+          if d.get('contract_version')!='gm.natal.v1': raise SystemExit("SAFE_DIAG contract_version")
+          if d.get('delivery_state')!='final_delivery_validated': raise SystemExit("SAFE_DIAG delivery_state")
+          for key in ['contract_sha256','canonical_markdown_sha256','delivery_binding_sha256']:
+              if not re.fullmatch(r'[a-f0-9]{64}',str(d.get(key,''))): raise SystemExit("SAFE_DIAG "+key)
+          raw=json.dumps(a,ensure_ascii=False)
+          if 'semantic_payload' in raw: raise SystemExit("SAFE_DIAG semantic_payload_leak")
+          if 'raw_model_output' in raw: raise SystemExit("SAFE_DIAG raw_model_output_leak")
+          m=d.get('canonical_markdown','')
+          if not m.startswith('---\n> # • NATAL (DOĞUM) HARİTAN •\n'): raise SystemExit("SAFE_DIAG canonical_prefix")
           PY
 
       - name: M1A-2 and M1A-3 live regression on final candidate
