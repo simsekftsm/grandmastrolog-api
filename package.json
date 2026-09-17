@@ -5,7 +5,10 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "cf:dev": "wrangler dev",
+    "cf:deploy": "wrangler deploy",
+    "cf:containers": "wrangler containers list"
   },
   "engines": {
     "node": ">=20"
@@ -19,5 +22,9 @@
     "pg": "latest",
     "swisseph": "^0.5.17",
     "luxon": "^3.5.0"
+  },
+  "devDependencies": {
+    "@cloudflare/containers": "^0.3.7",
+    "wrangler": "^4.133.0"
   }
 }
