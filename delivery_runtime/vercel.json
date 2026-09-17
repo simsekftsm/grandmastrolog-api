@@ -4,6 +4,9 @@
     "api/model-natal.js": {
       "maxDuration": 60
     },
+    "api/e2e-natal.js": {
+      "maxDuration": 60
+    },
     "api/*.js": {
       "maxDuration": 15
     }
