@@ -139,10 +139,10 @@ test('forged verified evidence fails closed', async () => {
 
 test('missing required evidence fails closed', async () => {
   const body = validBody();
-  body.binding_input.verified_evidence.pop();
+  body.binding_input.verified_evidence = body.binding_input.verified_evidence.filter((item) => item.evidence_id !== 'ev_sun');
   const res = await call(body);
   assert.equal(res.statusCode, 422);
-  assert.notEqual(res.body.code, undefined);
+  assert.equal(res.body.code, 'UNVERIFIED_PLACEMENT_EVIDENCE');
 });
 
 test('unauthorized request is rejected before delivery validation', async () => {
