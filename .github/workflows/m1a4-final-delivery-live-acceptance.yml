@@ -218,6 +218,7 @@ jobs:
           import json,re
           a=json.load(open('/tmp/final1.json')); b=json.load(open('/tmp/final2.json'))
           assert a==b
+          print({'ok':a.get('ok'),'delivery_validator_enabled':a.get('delivery_validator_enabled'),'final_delivery_authorized':a.get('final_delivery_authorized'),'keys':sorted(a.keys())})
           assert a['ok'] is True and a['delivery_validator_enabled'] is True and a['final_delivery_authorized'] is True
           d=a['delivery']; m=d['canonical_markdown']
           assert d['contract_version']=='gm.natal.v1'
