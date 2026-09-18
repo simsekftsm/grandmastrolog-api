@@ -76,6 +76,18 @@ jobs:
             lastStart=Date.now();
           }
 
+          function sanitizeGeminiSchema(value){
+            if(Array.isArray(value)) return value.map(sanitizeGeminiSchema);
+            if(!value || typeof value!=='object') return value;
+            const out={};
+            for(const [key,child] of Object.entries(value)){
+              if(['minLength','maxLength','pattern','multipleOf','exclusiveMinimum','exclusiveMaximum','uniqueItems'].includes(key)) continue;
+              if(key==='enum' && value.type==='boolean') continue;
+              out[key]=sanitizeGeminiSchema(child);
+            }
+            return out;
+          }
+
           function interactionText(json){
             const parts=[];
             for(const step of json?.steps||[]){
@@ -101,7 +113,7 @@ jobs:
                 response_format:{
                   type:'text',
                   mime_type:'application/json',
-                  schema:groqGenerationFormat(bi.verified_evidence,bi.availability).schema
+                  schema:sanitizeGeminiSchema(groqGenerationFormat(bi.verified_evidence,bi.availability).schema)
                 },
                 generation_config:{max_output_tokens:8192,seed:0},
                 store:false
