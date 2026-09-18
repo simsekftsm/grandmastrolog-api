@@ -1,0 +1,171 @@
+name: M1A-5 Post-Fix Successor Acceptance
+
+on:
+  push:
+    branches:
+      - m1a5-postfix-successor-acceptance
+    paths:
+      - 'm1a5_acceptance/**'
+      - 'm1a5_successor/**'
+      - '.github/workflows/m1a5-postfix-successor-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  post-fix-successor-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUCCESSOR_BASE_HEAD: 49d56e4585f0ab1a6b6fc550e3f2fe1651964371
+      ROOT_REPAIR_CANDIDATE: ce60c472023faa3e0822f84e13ba556f93a4b171
+      FROZEN_SOURCE_HEAD: fb1f0498cd0a7c49580cfde574a407e00e2bc20b
+      PRODUCTION_URL: https://grandmastrolog-api-production.up.railway.app
+      VERCEL_URL: https://grandmastrolog-delivery-runtime.vercel.app
+      EXPECTED_CORPUS_SHA256: d9d0e964d28b0fbbc70f4767a75283a6056524fed945dd39710a11693c0987c4
+      EXPECTED_RUBRIC_SHA256: 9cd31fe783d49326e16988dbd3c63d148f98d9343c0b2991bb9209011ab71ad4
+      GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
+
+    steps:
+      - name: Checkout exact successor candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Enforce successor scope and frozen harness identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          git cat-file -e "$SUCCESSOR_BASE_HEAD^{commit}"
+          git cat-file -e "$ROOT_REPAIR_CANDIDATE^{commit}"
+          git merge-base --is-ancestor "$SUCCESSOR_BASE_HEAD" HEAD
+          git merge-base --is-ancestor "$ROOT_REPAIR_CANDIDATE" "$SUCCESSOR_BASE_HEAD"
+
+          mapfile -t CHANGED < <(git diff --name-only "$SUCCESSOR_BASE_HEAD" HEAD)
+          test "${#CHANGED[@]}" -gt 0
+          for f in "${CHANGED[@]}"; do
+            case "$f" in
+              m1a5_acceptance/*|m1a5_successor/*|.github/workflows/m1a5-postfix-successor-acceptance.yml) ;;
+              *) echo "FAIL: OUT_OF_SCOPE_MUTATION:$f"; exit 1 ;;
+            esac
+          done
+
+          git fetch --no-tags --depth=1 origin "$FROZEN_SOURCE_HEAD"
+          for f in             m1a5_acceptance/corpus.normal-natal.v1.json             m1a5_acceptance/rubric.semantic-quality.v1.json             m1a5_acceptance/frozen-manifest.json             m1a5_acceptance/oracle-core.mjs             m1a5_acceptance/oracle-runner.mjs
+          do
+            test "$(git rev-parse "HEAD:$f")" = "$(git rev-parse "$FROZEN_SOURCE_HEAD:$f")" || {
+              echo "FAIL: FROZEN_HARNESS_DRIFT:$f"
+              exit 1
+            }
+          done
+
+          git diff --exit-code "$SUCCESSOR_BASE_HEAD" HEAD --             delivery_runtime gm_integration integration-server.js openapi.yaml Dockerfile             .github/m1a4-final-production-lock.json .github/real-e2e-production-lock.json
+
+      - name: Verify frozen corpus and rubric hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum m1a5_acceptance/corpus.normal-natal.v1.json | awk '{print $1}')" = "$EXPECTED_CORPUS_SHA256"
+          test "$(sha256sum m1a5_acceptance/rubric.semantic-quality.v1.json | awk '{print $1}')" = "$EXPECTED_RUBRIC_SHA256"
+          python3 - <<'PY'
+          import json,os
+          m=json.load(open('m1a5_acceptance/frozen-manifest.json',encoding='utf-8'))
+          assert m['corpus_sha256']==os.environ['EXPECTED_CORPUS_SHA256']
+          assert m['rubric_sha256']==os.environ['EXPECTED_RUBRIC_SHA256']
+          assert m['frozen_before_first_production_run'] is True
+          PY
+
+      - name: Require production trust material
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GM_API_SECRET:-}" || { echo 'BLOCKED: GITHUB_ACTIONS_GM_API_SECRET_MISSING'; exit 2; }
+
+      - name: Verify current post-fix production provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "$VERCEL_URL/api/health" -o /tmp/vercel-health.json
+          curl -fsS "$PRODUCTION_URL/integration/health" -o /tmp/railway-health.json
+          curl -fsS "$PRODUCTION_URL/health" -o /tmp/legacy-health.json
+          python3 - <<'PY'
+          import json,os
+          lock=json.load(open('.github/real-e2e-production-lock.json',encoding='utf-8'))
+          v=json.load(open('/tmp/vercel-health.json',encoding='utf-8'))
+          r=json.load(open('/tmp/railway-health.json',encoding='utf-8'))
+          l=json.load(open('/tmp/legacy-health.json',encoding='utf-8'))
+          expected=os.environ['ROOT_REPAIR_CANDIDATE']
+
+          assert lock['runtime_source_commit']==expected
+          assert v['ok'] is True
+          assert v['stage']=='M1A-4'
+          assert v['delivery_validator_enabled'] is True
+          assert v['final_delivery_authorized'] is True
+          assert v['raw_delivery_allowed'] is False
+          assert v['runtime_transport']['runtime_source_commit']==expected
+          assert v['deployment_provenance']['deployment_id']==lock['vercel_deployment_id']
+          assert v['deployment_provenance']['project_id']==lock['vercel_project_id']
+          assert v['source_provenance']['fingerprint']==lock['m1a4_source_fingerprint']
+
+          assert r['ok'] is True
+          assert r['legacy_ready'] is True
+          assert r['evidence_engine']=='grandmastrolog_swisseph_natal_v1'
+          assert r['railway_commit']==expected
+          assert r['railway_deployment_id']==lock['railway_deployment_id']
+
+          assert l['ok'] is True
+          assert l['service']=='grandmastrolog-api'
+          assert l['swisseph']['ok'] is True
+
+          print('SUCCESSOR_RUNTIME='+expected)
+          print('SUCCESSOR_VERCEL_DEPLOYMENT='+lock['vercel_deployment_id'])
+          print('SUCCESSOR_RAILWAY_DEPLOYMENT='+lock['railway_deployment_id'])
+          PY
+
+      - name: Install evidence-engine dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Run exact frozen oracle with TPM-safe call spacing
+        env:
+          M1A5_PRODUCTION_URL: ${{ env.PRODUCTION_URL }}
+          NODE_OPTIONS: --require=${{ github.workspace }}/m1a5_successor/throttle-fetch.cjs
+        run: node m1a5_acceptance/oracle-runner.mjs
+
+      - name: Upload successor acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1a5-postfix-successor-evidence-${{ github.sha }}
+          path: m1a5_acceptance/run-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Successor acceptance gate
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f m1a5_acceptance/run-artifacts/m1a5-results.json || {
+            echo 'BLOCKED: M1A5_RESULT_MISSING'
+            exit 2
+          }
+          python3 - <<'PY'
+          import json
+          x=json.load(open('m1a5_acceptance/run-artifacts/m1a5-results.json',encoding='utf-8'))
+          print('M1A5_POSTFIX_SUCCESSOR='+str(x.get('overall')))
+          for case in x.get('cases',[]):
+              print('CASE',case.get('case_id'),case.get('verdict'))
+              for failure in case.get('producer_failures',[]):
+                  print('PRODUCER_FAILURE',json.dumps(failure,ensure_ascii=False,sort_keys=True))
+          for item in x.get('counterexample_specificity',[]):
+              if item.get('verdict')!='PASS':
+                  print('COUNTEREXAMPLE',json.dumps(item,ensure_ascii=False,sort_keys=True))
+          verdict=x.get('overall')
+          if verdict=='PASS': raise SystemExit(0)
+          if verdict=='FAIL': raise SystemExit(1)
+          if verdict=='BLOCKED': raise SystemExit(2)
+          raise SystemExit(3)
+          PY
