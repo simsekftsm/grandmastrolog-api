@@ -95,7 +95,7 @@ jobs:
                 'content-type':'application/json'
               },
               body:JSON.stringify({
-                model:'gemini-2.5-flash',
+                model:'gemini-3.6-flash',
                 input:'SEMANTIC_INPUT_JSON:\n'+JSON.stringify(bi.semantic_input),
                 system_instruction:groqModelInstructions(bi.availability,bi.verified_evidence),
                 response_format:{
