@@ -41,8 +41,9 @@ const PLACEMENT_LABELS = Object.freeze({
   neptune: 'Neptün', pluto: 'Plüton', north_node: 'Kuzey Ay Düğümü', mc: 'MC'
 });
 
-const FIRST_CALIBRATION = 'Buraya kadarki ana yaşam alanları sende karşılık buluyor mu? **Evet / Hayır / Kısmen**';
-const SECOND_CALIBRATION = 'Bu anlattıklarım sende karşılık buluyor mu? **Evet / Hayır / Kısmen**';
+const FINAL_CALIBRATION = 'Bu anlattıklarım sende karşılık buldu mu: *Evet / Hayır / Kısmen*';
+const LEGACY_FIRST_CALIBRATION = 'Buraya kadarki ana yaşam alanları sende karşılık buluyor mu? **Evet / Hayır / Kısmen**';
+const LEGACY_SECOND_CALIBRATION = 'Bu anlattıklarım sende karşılık buluyor mu? **Evet / Hayır / Kısmen**';
 const RETURN_TO_USER_INTENT = 'Natal kapısı tamamlandı; bundan sonra doğrudan istediğin konuya girebiliriz. Kariyer/para, ilişki, aile, zamanlama, Vedik/Jyotish, kör nokta-gölge ya da başka bir mesele sorabilirsin. İstersen “açılım listesi” yazıp bütün görünür açılımları da görebilirsin.';
 
 class RendererError extends Error {
@@ -197,8 +198,6 @@ function buildCanonicalRender(envelope, availability) {
   }
 
   if (payload.first_calibration.calibration_id !== 'main_life_areas' || payload.first_calibration.required !== true) fail('MALFORMED_RENDERER_STATE', 'First calibration state is invalid.');
-  lines.push(FIRST_CALIBRATION);
-  lines.push('');
 
   const specialIds = payload.special_contributions.map((x) => x.contribution_id);
   const expectedSpecial = SPECIAL_ORDER.filter((id) => availability[id]);
@@ -206,7 +205,7 @@ function buildCanonicalRender(envelope, availability) {
   payload.special_contributions.forEach((item) => renderSpecial(lines, item, evidenceMap));
 
   if (payload.second_calibration.calibration_id !== 'general_natal' || payload.second_calibration.required !== true) fail('MALFORMED_RENDERER_STATE', 'Second calibration state is invalid.');
-  lines.push(SECOND_CALIBRATION);
+  lines.push(FINAL_CALIBRATION);
   lines.push('');
   if (payload.return_identity !== 'return_to_user_intent') fail('MALFORMED_RENDERER_STATE', 'Return identity is invalid.');
   lines.push(RETURN_TO_USER_INTENT);
@@ -237,8 +236,7 @@ function assertCanonicalPostconditions(result, payload) {
     '> ## • İLİŞKİLER •',
     '> ## • AİLE •',
     '> ## • KARMALAR •',
-    FIRST_CALIBRATION,
-    SECOND_CALIBRATION,
+    FINAL_CALIBRATION,
     RETURN_TO_USER_INTENT
   ];
   for (const marker of required) {
@@ -247,10 +245,19 @@ function assertCanonicalPostconditions(result, payload) {
   if (/(^|\n)>?\s*#{1,6}\s+.*POTANSİYELLER/u.test(text)) fail('RENDER_POSTCONDITION_FAILED', 'Standalone POTANSİYELLER is forbidden.');
   if (text.includes('Harita hattın:')) fail('RENDER_POSTCONDITION_FAILED', 'Initial Natal cannot expose Harita hattın.');
   if (text.includes('"semantic_payload"') || text.includes('"evidence_bindings"') || text.includes('raw_model_output')) fail('RAW_SEMANTIC_LEAK', 'Raw semantic/model state leaked into visible output.');
-  const first = text.indexOf(FIRST_CALIBRATION);
-  const second = text.indexOf(SECOND_CALIBRATION);
+  if (text.includes(LEGACY_FIRST_CALIBRATION) || text.includes(LEGACY_SECOND_CALIBRATION)) fail('RENDER_POSTCONDITION_FAILED', 'Superseded Natal calibration leaked into visible output.');
+  const finalCalibration = text.indexOf(FINAL_CALIBRATION);
   const ret = text.indexOf(RETURN_TO_USER_INTENT);
-  if (!(first >= 0 && second > first && ret > second)) fail('RENDER_POSTCONDITION_FAILED', 'Calibration/return order is invalid.');
+  if (!(finalCalibration >= 0 && ret > finalCalibration)) fail('RENDER_POSTCONDITION_FAILED', 'Final calibration/return order is invalid.');
+  const beforeFinalCalibration = [];
+  if (payload.prelude.included) beforeFinalCalibration.push(...payload.prelude.body_paragraphs);
+  for (const section of payload.pre_seal_sections) if (section.included) beforeFinalCalibration.push(...section.body_paragraphs);
+  beforeFinalCalibration.push(payload.personal_seal.motto);
+  for (const section of payload.main_life_sections) if (section.included) beforeFinalCalibration.push(...section.body_paragraphs);
+  for (const contribution of payload.special_contributions) beforeFinalCalibration.push(...contribution.body_paragraphs);
+  for (const semanticText of beforeFinalCalibration) {
+    if (text.lastIndexOf(semanticText) > finalCalibration) fail('RENDER_POSTCONDITION_FAILED', 'Final calibration appeared before semantic Natal content completed.');
+  }
 
   const paragraphBlocks = [];
   if (payload.prelude.included) paragraphBlocks.push(payload.prelude.body_paragraphs);
@@ -296,8 +303,7 @@ function renderCanonicalNatal(bindingInput, semanticPayload) {
 module.exports = {
   RENDERER_ID,
   RENDERER_VERSION,
-  FIRST_CALIBRATION,
-  SECOND_CALIBRATION,
+  FINAL_CALIBRATION,
   RETURN_TO_USER_INTENT,
   RendererError,
   ElementVisualError,

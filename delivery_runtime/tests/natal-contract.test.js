@@ -10,7 +10,8 @@ const {
   makeValidatedEnvelope,
   openAIStrictFormat,
   schema,
-  CANONICAL_POLICY
+  CANONICAL_POLICY,
+  modelInstructions
 } = require('../lib/natal-contract');
 const { evidenceCatalog, availability, bindingInput, validPayload, clone } = require('./helpers');
 
@@ -132,12 +133,19 @@ test('17 optional section inclusion is bound to verified availability', () => {
   assert.equal(codeOf(() => validate(p, av)), 'INCLUSION_MISMATCH');
 });
 
-test('18 strict OpenAI format is json_schema strict and schema forbids additional properties', () => {
+test('18 strict OpenAI format is json_schema strict and semantic instructions preserve GM quality boundary', () => {
   const format = openAIStrictFormat();
   assert.equal(format.type, 'json_schema');
   assert.equal(format.strict, true);
   assert.equal(format.schema, schema);
   assert.equal(schema.additionalProperties, false);
+  const instructions = modelInstructions(availability(), evidenceCatalog());
+  assert.match(instructions, /natural, direct Turkish/);
+  assert.match(instructions, /Never merely restate the Hat/);
+  assert.match(instructions, /Each included section must add distinct new value/);
+  assert.match(instructions, /HARİTANIN ÖZÜ is not a second profile or career list/);
+  assert.match(instructions, /Never invent biography, events, aspects, rulers, dignities, element percentages, transits, timing/);
+  assert.match(instructions, /personal seal must be a concise person-specific Sun\+Ascendant synthesis/);
 });
 
 test('placement values must exactly match verified astro evidence', () => {

@@ -9,8 +9,7 @@ const {
   ElementVisualError,
   renderCanonicalNatal,
   assertCanonicalPostconditions,
-  FIRST_CALIBRATION,
-  SECOND_CALIBRATION,
+  FINAL_CALIBRATION,
   RETURN_TO_USER_INTENT
 } = require('../lib/natal-renderer');
 const { availability, bindingInput, validPayload, clone } = require('./helpers');
@@ -113,14 +112,14 @@ test('M1A-3 positive: personal seal is single canonical Sun & Ascendant shell in
   assert.ok(text.indexOf(seal) < text.indexOf('> ## • PARA & KARİYER •'));
 });
 
-test('M1A-3 positive: both calibrations and return identity are exact and ordered', () => {
+test('M1A-3 positive: single final calibration and return identity are exact and ordered', () => {
   const { result } = render();
   const text = result.canonical_markdown;
-  assert.equal((text.match(/Buraya kadarki ana yaşam alanları/g) || []).length, 1);
-  assert.equal((text.match(/Bu anlattıklarım sende karşılık buluyor mu\?/g) || []).length, 1);
+  assert.equal((text.match(/Buraya kadarki ana yaşam alanları/g) || []).length, 0);
+  assert.equal((text.match(/Bu anlattıklarım sende karşılık buluyor mu\?/g) || []).length, 0);
+  assert.equal((text.match(/Bu anlattıklarım sende karşılık buldu mu:/g) || []).length, 1);
   assert.equal((text.match(/Natal kapısı tamamlandı/g) || []).length, 1);
-  assert.ok(text.indexOf(FIRST_CALIBRATION) < text.indexOf(SECOND_CALIBRATION));
-  assert.ok(text.indexOf(SECOND_CALIBRATION) < text.indexOf(RETURN_TO_USER_INTENT));
+  assert.ok(text.indexOf(FINAL_CALIBRATION) < text.indexOf(RETURN_TO_USER_INTENT));
 });
 
 test('M1A-3 positive: special contributions follow server canonical order for mixed availability', () => {
@@ -130,8 +129,7 @@ test('M1A-3 positive: special contributions follow server canonical order for mi
   const positions = ids.map((id) => text.indexOf(`${id} için düz semantik katkı.`));
   positions.forEach((p) => assert.ok(p >= 0));
   assert.deepEqual([...positions].sort((a,b)=>a-b), positions);
-  assert.ok(positions[0] > text.indexOf(FIRST_CALIBRATION));
-  assert.ok(positions.at(-1) < text.indexOf(SECOND_CALIBRATION));
+  assert.ok(positions.at(-1) < text.indexOf(FINAL_CALIBRATION));
 });
 
 test('M1A-3 positive: semantic body paragraphs are preserved verbatim without merge/drop', () => {
@@ -174,11 +172,11 @@ test('MUTANT heading/body order deviation is killed', () => {
 });
 
 test('MUTANT personal seal moved after main-life content is killed', () => {
-  const { result, payload }=render(); const mutant=clone(result); const seal=`> *Balık & Aslan: ${payload.personal_seal.motto}*\n---`; mutant.canonical_markdown=mutant.canonical_markdown.replace(`${seal}\n`, '').replace(SECOND_CALIBRATION, `${seal}\n${SECOND_CALIBRATION}`); rehash(mutant); assert.throws(()=>assertCanonicalPostconditions(mutant,payload), RendererError);
+  const { result, payload }=render(); const mutant=clone(result); const seal=`> *Balık & Aslan: ${payload.personal_seal.motto}*\n---`; mutant.canonical_markdown=mutant.canonical_markdown.replace(`${seal}\n`, '').replace(FINAL_CALIBRATION, `${seal}\n${FINAL_CALIBRATION}`); rehash(mutant); assert.throws(()=>assertCanonicalPostconditions(mutant,payload), RendererError);
 });
 
 test('MUTANT calibration moved to wrong position is killed', () => {
-  const { result, payload }=render(); const mutant=clone(result); mutant.canonical_markdown=mutant.canonical_markdown.replace(FIRST_CALIBRATION,'__FIRST__').replace(SECOND_CALIBRATION,FIRST_CALIBRATION).replace('__FIRST__',SECOND_CALIBRATION); rehash(mutant); assert.throws(()=>assertCanonicalPostconditions(mutant,payload), RendererError);
+  const { result, payload }=render(); const mutant=clone(result); mutant.canonical_markdown=mutant.canonical_markdown.replace(FINAL_CALIBRATION,'').replace('> ## • PARA & KARİYER •', `${FINAL_CALIBRATION}\n\n> ## • PARA & KARİYER •`); rehash(mutant); assert.throws(()=>assertCanonicalPostconditions(mutant,payload), RendererError);
 });
 
 test('MUTANT special contribution wrong order is killed by server contract', () => { const f=fixture({hellenistic:true,jyotish:true}); [f.payload.special_contributions[0],f.payload.special_contributions[1]]=[f.payload.special_contributions[1],f.payload.special_contributions[0]]; mustReject(()=>renderCanonicalNatal(f.binding,f.payload)); });
