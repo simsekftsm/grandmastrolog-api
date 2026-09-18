@@ -33,8 +33,17 @@ jobs:
           git merge-base --is-ancestor "$ROOT_REPAIR_CANDIDATE" HEAD
           test -n "${GROQ_API_KEY:-}" || { echo 'BLOCKED:GROQ_API_KEY_MISSING'; exit 2; }
           git fetch --no-tags --depth=1 origin "$FROZEN_SOURCE_HEAD"
-          git show "$FROZEN_SOURCE_HEAD:m1a5_acceptance/corpus.normal-natal.v1.json" > /tmp/corpus.json
-          test "$(sha256sum /tmp/corpus.json | awk '{print $1}')" = "d9d0e964d28b0fbbc70f4767a75283a6056524fed945dd39710a11693c0987c"
+          test "$(git rev-parse "FETCH_HEAD:m1a5_acceptance/corpus.normal-natal.v1.json")" = "d267bb9cb9f50c37635a6fdc5bc90d2547d39a14"
+          git show "FETCH_HEAD:m1a5_acceptance/corpus.normal-natal.v1.json" > /tmp/corpus.json
+          git show "FETCH_HEAD:m1a5_acceptance/frozen-manifest.json" > /tmp/frozen-manifest.json
+          python3 - <<'PY'
+          import hashlib,json
+          raw=open('/tmp/corpus.json','rb').read()
+          manifest=json.load(open('/tmp/frozen-manifest.json',encoding='utf-8'))
+          actual=hashlib.sha256(raw).hexdigest()
+          print('FROZEN_CORPUS_SHA256='+actual)
+          assert actual==manifest['corpus_sha256']
+          PY
 
       - name: Install evidence-engine dependencies
         run: npm install --no-audit --no-fund
