@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { schema } = require('../lib/natal-contract');
-const { groqGenerationFormat, groqModelInstructions } = require('../lib/groq-binding');
+const { GROQ_MAX_OUTPUT_TOKENS, groqGenerationFormat, groqModelInstructions } = require('../lib/groq-binding');
 const { evidenceCatalog, availability } = require('./helpers');
 
 test('Groq generation format is strict and forces non-empty fixed semantic slots', () => {
@@ -15,6 +15,7 @@ test('Groq generation format is strict and forces non-empty fixed semantic slots
   assert.equal(format.schema.$defs.prelude.properties.hat_evidence_refs.minItems, 1);
   assert.equal(format.schema.$defs.section.properties.body_paragraphs.minItems, 1);
   assert.equal(format.schema.$defs.section.properties.hat_evidence_refs.minItems, 1);
+  assert.equal(GROQ_MAX_OUTPUT_TOKENS, 4608);
 });
 
 test('Groq generation constraints do not mutate the canonical downstream schema', () => {
