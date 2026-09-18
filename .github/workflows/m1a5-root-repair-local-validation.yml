@@ -1,0 +1,90 @@
+name: M1A-5 Root Repair Local Validation
+
+on:
+  push:
+    branches:
+      - m1a5-root-repair-validation
+    paths:
+      - '.github/workflows/m1a5-root-repair-local-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_HEAD: 49d56e4585f0ab1a6b6fc550e3f2fe1651964371
+      RUNTIME_SHA: b5ee123cecdbe220a8db7957a64f881738c07b24
+
+    steps:
+      - name: Checkout exact runtime repair candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RUNTIME_SHA }}
+          fetch-depth: 0
+
+      - name: Enforce exact authorized delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RUNTIME_SHA"
+          git cat-file -e "$BASE_HEAD^{commit}"
+          mapfile -t CHANGED < <(git diff --name-only "$BASE_HEAD" "$RUNTIME_SHA")
+          printf '%s\n' "${CHANGED[@]}"
+          EXPECTED=(
+            delivery_runtime/api/e2e-natal.js
+            delivery_runtime/api/model-natal.js
+            delivery_runtime/lib/groq-binding.js
+            delivery_runtime/lib/source-provenance.js
+            delivery_runtime/tests/api.test.js
+            delivery_runtime/tests/groq-binding.test.js
+          )
+          test "${#CHANGED[@]}" -eq "${#EXPECTED[@]}"
+          for f in "${EXPECTED[@]}"; do
+            printf '%s\n' "${CHANGED[@]}" | grep -Fxq "$f"
+          done
+
+      - name: Verify bounded Groq request readback
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const binding=require('./delivery_runtime/lib/groq-binding.js');
+          if(binding.GROQ_MAX_OUTPUT_TOKENS!==4608) throw new Error('CAP_MISMATCH');
+          for(const p of ['delivery_runtime/api/model-natal.js','delivery_runtime/api/e2e-natal.js']){
+            const s=fs.readFileSync(p,'utf8');
+            if(!s.includes('max_output_tokens: GROQ_MAX_OUTPUT_TOKENS')) throw new Error('CAP_NOT_BOUND:'+p);
+          }
+          const {verifyPhysicalSourceProvenance}=require('./delivery_runtime/lib/delivery-validator.js');
+          const x=verifyPhysicalSourceProvenance();
+          if(x.fingerprint!=='0b7e1b7aa335918b795bc87de6a73f27ea4d6f6e8b8fc8ac50d2600d3f4f006c') throw new Error('PROVENANCE_FINGERPRINT_MISMATCH');
+          console.log('CAP_READBACK=4608');
+          console.log('SOURCE_FINGERPRINT='+x.fingerprint);
+          NODE
+
+      - name: Delivery runtime regression 108 of 108
+        working-directory: delivery_runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap tests/*.test.js | tee /tmp/runtime.tap
+          TESTS="$(awk '/^# tests /{print $3}' /tmp/runtime.tap | tail -1)"
+          PASS="$(awk '/^# pass /{print $3}' /tmp/runtime.tap | tail -1)"
+          FAIL="$(awk '/^# fail /{print $3}' /tmp/runtime.tap | tail -1)"
+          echo "RUNTIME_TESTS=$TESTS PASS=$PASS FAIL=$FAIL"
+          test "$TESTS" = '108'
+          test "$PASS" = '108'
+          test "$FAIL" = '0'
+
+      - name: Install integration dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Integration regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test integration_tests/natal-evidence.test.mjs integration_tests/e2e-runtime.test.mjs
