@@ -6,12 +6,11 @@ This directory contains the governed GrandMastrolog Natal delivery runtime.
 
 The runtime is provider-adapted and fail-closed.
 
-- Canonical provider: OpenAI
-- Canonical default model: `gpt-5.6-luna`
-- Provider API: OpenAI Responses API
-- Structured output: strict JSON Schema
-- Reasoning effort: medium
-- Maximum provider output budget: 16384 tokens
+- Canonical provider: Google Gemini API
+- Canonical default model: `gemini-3.1-flash-lite`
+- Provider API: Gemini Interactions API
+- Structured output: JSON Schema response format
+- Maximum provider output budget: 8192 tokens
 - Visible layout owner: deterministic GrandMastrolog renderer
 - Final semantic authority: server-side `gm.natal.v1` validator
 
@@ -32,20 +31,20 @@ to rejection by the downstream contract.
 ## Required runtime secrets
 
 - `GM_API_SECRET`: internal GrandMastrolog trust/request-signing secret.
-- `OPENAI_API_KEY`: provider credential for OpenAI Responses API.
+- `GEMINI_API_KEY`: provider credential for the Gemini API.
 
 These secrets are not interchangeable.
 
 Optional freeze variables:
 
-- `GM_MODEL_PROVIDER` may be unset or exactly `openai`.
-- `GM_MODEL` may be unset or exactly `gpt-5.6-luna`.
+- `GM_MODEL_PROVIDER` may be unset or exactly `google`.
+- `GM_MODEL` may be unset or exactly `gemini-3.1-flash-lite`.
 
 Any conflicting override fails closed.
 
 ## Delivery path
 
-Verified astro evidence -> provider-neutral semantic generation schema -> Luna
+Verified astro evidence -> provider-neutral semantic generation schema -> Gemini
 semantic candidate -> deterministic format normalization -> server canonical
 binding -> `gm.natal.v1` validation -> canonical renderer -> final delivery
 validator.
