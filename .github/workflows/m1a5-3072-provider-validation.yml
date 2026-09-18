@@ -1,0 +1,93 @@
+name: M1A-5 3072 Provider Validation
+
+on:
+  push:
+    branches:
+      - m1a5-upstream-diagnostic-20260918
+    paths:
+      - '.github/workflows/m1a5-3072-provider-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-3072:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TARGET_SHA: 3363af042ff70f7ed3d2caab8b094d69b1eaf1e7
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+    steps:
+      - name: Checkout exact 3072 candidate
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+
+      - name: Wait past current daily-limit reset and make one provider call
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GROQ_API_KEY:-}" || { echo 'BLOCKED:GROQ_API_KEY_MISSING'; exit 2; }
+          sleep 720
+          node <<'NODE'
+          const {availability,bindingInput}=require('./delivery_runtime/tests/helpers');
+          const {groqGenerationFormat,groqModelInstructions}=require('./delivery_runtime/lib/groq-binding');
+          const {canonicalizeModelPayload}=require('./delivery_runtime/lib/model-binding');
+          const {validateBindingInput,makeValidatedEnvelope}=require('./delivery_runtime/lib/natal-contract');
+
+          function outputText(json){
+            if(typeof json?.output_text==='string' && json.output_text.trim()) return json.output_text;
+            for(const item of json?.output||[]){
+              for(const c of item?.content||[]){
+                if(c?.type==='output_text' && typeof c.text==='string') return c.text;
+              }
+            }
+            return '';
+          }
+
+          (async()=>{
+            const bi=bindingInput(availability());
+            const {evidenceMap,availability:av}=validateBindingInput(bi);
+            const res=await fetch('https://api.groq.com/openai/v1/responses',{
+              method:'POST',
+              headers:{authorization:'Bearer '+process.env.GROQ_API_KEY,'content-type':'application/json'},
+              body:JSON.stringify({
+                model:'openai/gpt-oss-120b',
+                max_output_tokens:3072,
+                instructions:groqModelInstructions(av,bi.verified_evidence),
+                input:bi.semantic_input,
+                text:{format:groqGenerationFormat(bi.verified_evidence,av)}
+              }),
+              signal:AbortSignal.timeout(70000)
+            });
+            let json={}; try{json=await res.json()}catch{}
+            const err=json?.error||{};
+            let parseOk=false, validationOk=false;
+            if(res.ok){
+              try{
+                const raw=JSON.parse(outputText(json));
+                parseOk=true;
+                const canonical=canonicalizeModelPayload(raw,evidenceMap,av);
+                makeValidatedEnvelope(canonical,evidenceMap,av);
+                validationOk=true;
+              }catch{}
+            }
+            const safe={
+              http_status:res.status,
+              response_status:json?.status??null,
+              parse_ok:parseOk,
+              canonical_validation_ok:validationOk,
+              usage_input_tokens:json?.usage?.input_tokens??null,
+              usage_output_tokens:json?.usage?.output_tokens??null,
+              error_code:err?.code??null,
+              error_type:err?.type??null,
+              error_message:typeof err?.message==='string'?err.message.slice(0,700):null,
+              retry_after:res.headers.get('retry-after'),
+              remaining_tokens:res.headers.get('x-ratelimit-remaining-tokens'),
+              reset_tokens:res.headers.get('x-ratelimit-reset-tokens')
+            };
+            console.log('SAFE_3072_PROVIDER_VALIDATION '+JSON.stringify(safe));
+            if(res.status!==200 || !parseOk || !validationOk) process.exit(1);
+          })().catch(e=>{console.error('PROVIDER_VALIDATION_ERROR '+String(e?.name||'')+':'+String(e?.message||e));process.exit(3);});
+          NODE
