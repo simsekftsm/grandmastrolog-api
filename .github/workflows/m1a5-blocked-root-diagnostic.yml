@@ -141,13 +141,14 @@ jobs:
               canonical_validation_ok,
               error_code:err?.code??null,
               error_status:err?.status??null,
-              error_message:typeof err?.message==='string'?err.message.slice(0,1000):null
+              error_message:typeof err?.message==='string'?err.message.slice(0,1000):null,
+              error_details:Array.isArray(err?.details)?err.details:null
             }));
             return canonical_validation_ok;
           }
 
           (async()=>{
-            for(const t of corpus.cases){
+            for(const t of corpus.cases.slice(0,1)){
               const built=buildNatalBindingInput({request_id:t.request_id,birth:t.birth});
               const bi=built.binding_input;
               await waitGap();
