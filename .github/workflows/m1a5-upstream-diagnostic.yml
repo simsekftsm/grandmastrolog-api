@@ -21,6 +21,7 @@ jobs:
       EXPECTED_RUBRIC_SHA256: 9cd31fe783d49326e16988dbd3c63d148f98d9343c0b2991bb9209011ab71ad4
       VERCEL_URL: https://grandmastrolog-delivery-runtime.vercel.app
       GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 
     steps:
       - name: Checkout exact frozen candidate
@@ -104,6 +105,69 @@ jobs:
             }
           })().catch((error) => {
             console.error('DIAGNOSTIC_ERROR ' + String(error?.name || '') + ':' + String(error?.message || error));
+            process.exit(1);
+          });
+          NODE
+
+      - name: Optional direct Groq diagnostic for exact provider error
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GROQ_API_KEY:-}" ]; then
+            echo 'DIRECT_PROVIDER_DIAG_UNAVAILABLE:GROQ_API_KEY_SECRET_MISSING'
+            exit 0
+          fi
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { buildNatalBindingInput } = require('./gm_integration/natal-evidence.js');
+          const { groqGenerationFormat, groqModelInstructions } = require('./delivery_runtime/lib/groq-binding');
+
+          const corpus = JSON.parse(fs.readFileSync('m1a5_acceptance/corpus.normal-natal.v1.json', 'utf8'));
+          const wanted = new Set(['NATAL_SYN_02', 'NATAL_SYN_03']);
+          const cases = corpus.cases.filter((x) => wanted.has(x.case_id));
+
+          function safeHeader(response, name) { return response.headers.get(name); }
+          async function runCase(testCase) {
+            const evidence = buildNatalBindingInput({ request_id:testCase.request_id, birth:testCase.birth });
+            const bi = evidence.binding_input;
+            const response = await fetch('https://api.groq.com/openai/v1/responses', {
+              method:'POST',
+              headers:{
+                'authorization':'Bearer ' + process.env.GROQ_API_KEY,
+                'content-type':'application/json'
+              },
+              body:JSON.stringify({
+                model:'openai/gpt-oss-120b',
+                instructions:groqModelInstructions(bi.availability, bi.verified_evidence),
+                input:bi.semantic_input,
+                text:{format:groqGenerationFormat(bi.verified_evidence, bi.availability)}
+              }),
+              signal:AbortSignal.timeout(70000)
+            });
+
+            let body = {};
+            try { body = await response.json(); } catch {}
+            const err = body && typeof body === 'object' ? body.error : null;
+            const safe = {
+              case_id:testCase.case_id,
+              status:response.status,
+              error_message:err?.message ?? null,
+              error_type:err?.type ?? null,
+              error_code:err?.code ?? null,
+              error_param:err?.param ?? null,
+              retry_after:safeHeader(response,'retry-after'),
+              ratelimit_limit_requests:safeHeader(response,'x-ratelimit-limit-requests'),
+              ratelimit_remaining_requests:safeHeader(response,'x-ratelimit-remaining-requests'),
+              ratelimit_reset_requests:safeHeader(response,'x-ratelimit-reset-requests'),
+              ratelimit_limit_tokens:safeHeader(response,'x-ratelimit-limit-tokens'),
+              ratelimit_remaining_tokens:safeHeader(response,'x-ratelimit-remaining-tokens'),
+              ratelimit_reset_tokens:safeHeader(response,'x-ratelimit-reset-tokens')
+            };
+            console.log('SAFE_PROVIDER_DIAG ' + JSON.stringify(safe));
+          }
+
+          (async()=>{ for (const x of cases) await runCase(x); })().catch((error)=>{
+            console.error('PROVIDER_DIAG_ERROR ' + String(error?.name||'') + ':' + String(error?.message||error));
             process.exit(1);
           });
           NODE
