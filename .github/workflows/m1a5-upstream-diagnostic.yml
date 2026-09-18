@@ -20,6 +20,8 @@ jobs:
       EXPECTED_CORPUS_SHA256: d9d0e964d28b0fbbc70f4767a75283a6056524fed945dd39710a11693c0987c4
       EXPECTED_RUBRIC_SHA256: 9cd31fe783d49326e16988dbd3c63d148f98d9343c0b2991bb9209011ab71ad4
       VERCEL_URL: https://grandmastrolog-delivery-runtime.vercel.app
+      PRODUCTION_URL: https://grandmastrolog-api-production.up.railway.app
+      EXPECTED_CURRENT_RUNTIME: ce60c472023faa3e0822f84e13ba556f93a4b171
       GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 
@@ -175,3 +177,54 @@ jobs:
 # rerun-after-groq-secret-20260918
 
 # rerun-marker-20260918
+
+      - name: Verify current ce60 production chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "$VERCEL_URL/api/health" -o /tmp/current-vercel-health.json
+          curl -fsS "$PRODUCTION_URL/integration/health" -o /tmp/current-railway-health.json
+          python3 - <<'PY'
+          import json,os
+          v=json.load(open('/tmp/current-vercel-health.json',encoding='utf-8'))
+          r=json.load(open('/tmp/current-railway-health.json',encoding='utf-8'))
+          expected=os.environ['EXPECTED_CURRENT_RUNTIME']
+          assert v['ok'] is True
+          assert v['runtime_transport']['runtime_source_commit']==expected
+          assert r['ok'] is True
+          assert r['railway_commit']==expected
+          print('CURRENT_PRODUCTION_RUNTIME='+expected)
+          print('CURRENT_VERCEL_DEPLOYMENT='+v['deployment_provenance']['deployment_id'])
+          print('CURRENT_RAILWAY_DEPLOYMENT='+r['railway_deployment_id'])
+          PY
+
+      - name: Run frozen oracle against current ce60 production
+        env:
+          M1A5_PRODUCTION_URL: ${{ env.PRODUCTION_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf m1a5_acceptance/run-artifacts
+          node m1a5_acceptance/oracle-runner.mjs
+          python3 - <<'PY'
+          import json
+          x=json.load(open('m1a5_acceptance/run-artifacts/m1a5-results.json',encoding='utf-8'))
+          print('CURRENT_CE60_M1A5_OVERALL='+str(x.get('overall')))
+          for case in x.get('cases',[]):
+              print('CURRENT_CE60_CASE='+json.dumps({
+                  'case_id':case.get('case_id'),
+                  'verdict':case.get('verdict'),
+                  'dimensions':case.get('dimensions'),
+                  'producer_failures':case.get('producer_failures')
+              },ensure_ascii=False,sort_keys=True))
+          print('CURRENT_CE60_COUNTEREXAMPLE='+json.dumps(x.get('counterexample_specificity'),ensure_ascii=False,sort_keys=True))
+          PY
+
+      - name: Upload current ce60 frozen-oracle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1a5-ce60-frozen-oracle-${{ github.sha }}
+          path: m1a5_acceptance/run-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
