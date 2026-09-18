@@ -1,0 +1,103 @@
+name: M1A-5 Post-Fix Provider Diagnostic
+
+on:
+  push:
+    branches:
+      - m1a5-postfix-successor-acceptance
+    paths:
+      - '.github/workflows/m1a5-postfix-provider-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provider-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ROOT_REPAIR_CANDIDATE: ce60c472023faa3e0822f84e13ba556f93a4b171
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+    steps:
+      - name: Checkout exact successor state
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify runtime source and frozen artifact identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$ROOT_REPAIR_CANDIDATE" HEAD
+          test -n "${GROQ_API_KEY:-}" || { echo 'BLOCKED: GROQ_API_KEY_MISSING'; exit 2; }
+          git fetch --no-tags --depth=1 origin fb1f0498cd0a7c49580cfde574a407e00e2bc20b
+          for f in             m1a5_acceptance/corpus.normal-natal.v1.json             m1a5_acceptance/rubric.semantic-quality.v1.json
+          do
+            test "$(git rev-parse "HEAD:$f")" = "$(git rev-parse "fb1f0498cd0a7c49580cfde574a407e00e2bc20b:$f")"
+          done
+
+      - name: Install evidence-engine dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Reproduce blocked provider requests exactly
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('node:fs');
+          const {buildNatalBindingInput}=require('./gm_integration/natal-evidence.js');
+          const {groqGenerationFormat,groqModelInstructions}=require('./delivery_runtime/lib/groq-binding');
+
+          const corpus=JSON.parse(fs.readFileSync('m1a5_acceptance/corpus.normal-natal.v1.json','utf8'));
+          const cases=corpus.cases.filter(x=>['NATAL_SYN_01','NATAL_SYN_02'].includes(x.case_id));
+          let lastStart=0;
+          const gap=70000;
+
+          async function waitGap(){
+            const wait=Math.max(0,gap-(Date.now()-lastStart));
+            if(wait>0) await new Promise(r=>setTimeout(r,wait));
+            lastStart=Date.now();
+          }
+
+          async function run(t){
+            await waitGap();
+            const built=buildNatalBindingInput({request_id:t.request_id,birth:t.birth});
+            const bi=built.binding_input;
+            const response=await fetch('https://api.groq.com/openai/v1/responses',{
+              method:'POST',
+              headers:{
+                authorization:'Bearer '+process.env.GROQ_API_KEY,
+                'content-type':'application/json'
+              },
+              body:JSON.stringify({
+                model:'openai/gpt-oss-120b',
+                instructions:groqModelInstructions(bi.availability,bi.verified_evidence),
+                input:bi.semantic_input,
+                text:{format:groqGenerationFormat(bi.verified_evidence,bi.availability)}
+              }),
+              signal:AbortSignal.timeout(70000)
+            });
+            let body={}; try{body=await response.json()}catch{}
+            const err=body?.error||{};
+            console.log('POSTFIX_PROVIDER_DIAG '+JSON.stringify({
+              case_id:t.case_id,
+              status:response.status,
+              response_status:body?.status??null,
+              error_message:err?.message??null,
+              error_type:err?.type??null,
+              error_code:err?.code??null,
+              error_param:err?.param??null,
+              retry_after:response.headers.get('retry-after'),
+              limit_tokens:response.headers.get('x-ratelimit-limit-tokens'),
+              remaining_tokens:response.headers.get('x-ratelimit-remaining-tokens'),
+              reset_tokens:response.headers.get('x-ratelimit-reset-tokens')
+            }));
+          }
+
+          (async()=>{for(const t of cases) await run(t)})().catch(e=>{
+            console.error('POSTFIX_PROVIDER_DIAG_ERROR '+String(e?.name||'')+':'+String(e?.message||e));
+            process.exit(1);
+          });
+          NODE
