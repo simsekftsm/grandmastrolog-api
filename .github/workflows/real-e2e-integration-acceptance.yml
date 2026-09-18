@@ -16,6 +16,7 @@ jobs:
       VERCEL_URL: https://grandmastrolog-delivery-runtime.vercel.app
       EXPECTED_VERCEL_PROJECT_ID: prj_XhDus3tQsyiLxrPccbQteXLwbB2a
       EXPECTED_MAIN_HEAD: c71f752c9d7c426c056e8e912c767465c6599d91
+      EXPECTED_M1A5_RUNTIME_SHA: b5ee123cecdbe220a8db7957a64f881738c07b24
       GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
 
     steps:
@@ -80,13 +81,14 @@ jobs:
           test -n "${GM_API_SECRET:-}" || { echo 'BLOCKED: GITHUB_ACTIONS_GM_API_SECRET_MISSING'; exit 1; }
           test -f .github/real-e2e-production-lock.json || { echo 'BLOCKED: REAL_E2E_PRODUCTION_LOCK_MISSING'; exit 1; }
           python3 - <<'PY'
-          import json
+          import json,os
           x=json.load(open('.github/real-e2e-production-lock.json',encoding='utf-8'))
           required={
             'runtime_source_commit','railway_deployment_id','vercel_deployment_id','vercel_project_id',
             'm1a4_source_fingerprint','integration_fingerprint','integration_files'
           }
           assert set(x)==required
+          assert x['runtime_source_commit']==os.environ['EXPECTED_M1A5_RUNTIME_SHA']
           assert len(x['runtime_source_commit'])==40
           assert x['railway_deployment_id']
           assert x['vercel_deployment_id'].startswith('dpl_')
@@ -96,7 +98,7 @@ jobs:
           assert isinstance(x['integration_files'],dict) and len(x['integration_files'])==5
           PY
 
-      - name: Verify integration fingerprint and lock-only successor commits
+      - name: Verify integration fingerprint and acceptance-only successor commits
         shell: bash
         run: |
           set -euo pipefail
@@ -105,7 +107,7 @@ jobs:
           mapfile -t CHANGED < <(git diff --name-only "$RUNTIME_SOURCE" HEAD)
           for f in "${CHANGED[@]}"; do
             case "$f" in
-              .github/m1a4-final-production-lock.json|.github/real-e2e-production-lock.json|.github/workflows/m1a4-final-delivery-live-acceptance.yml|.github/workflows/m1a1-delivery-runtime-live-acceptance.yml|.github/workflows/real-e2e-integration-acceptance.yml) ;;
+              .github/m1a4-final-production-lock.json|.github/real-e2e-production-lock.json|.github/workflows/m1a4-final-delivery-live-acceptance.yml|.github/workflows/m1a1-delivery-runtime-live-acceptance.yml|.github/workflows/real-e2e-integration-acceptance.yml|.github/workflows/m1a5-postfix-successor-v2.yml|.github/workflows/m1a5-blocked-root-diagnostic.yml|m1a5_acceptance/corpus.normal-natal.v1.json|m1a5_acceptance/frozen-manifest.json|m1a5_acceptance/oracle-core.mjs|m1a5_acceptance/oracle-runner.mjs|m1a5_acceptance/rubric.semantic-quality.v1.json|m1a5_successor/calibration-delta.v1.json|m1a5_successor/oracle-runner.mjs) ;;
               *) echo "Unexpected post-deployment mutation: $f"; exit 1 ;;
             esac
           done

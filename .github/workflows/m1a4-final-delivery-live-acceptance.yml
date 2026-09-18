@@ -16,6 +16,7 @@ jobs:
       EXISTING_API_URL: https://grandmastrolog-api-production.up.railway.app
       EXPECTED_VERCEL_PROJECT_ID: prj_XhDus3tQsyiLxrPccbQteXLwbB2a
       EXPECTED_MAIN_HEAD: c71f752c9d7c426c056e8e912c767465c6599d91
+      EXPECTED_M1A5_RUNTIME_SHA: b5ee123cecdbe220a8db7957a64f881738c07b24
       GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
 
     steps:
@@ -53,12 +54,13 @@ jobs:
           test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_MAIN_HEAD"
           test -f .github/m1a4-final-production-lock.json || { echo 'BLOCKED: M1A4_FINAL_PRODUCTION_LOCK_MISSING'; exit 1; }
           python3 - <<'PY'
-          import json
+          import json,os
           x=json.load(open('.github/m1a4-final-production-lock.json',encoding='utf-8'))
           required={'deployment_id','project_id','runtime_source_commit','source_fingerprint','source_provenance_blob_sha'}
           assert set(x)==required
           assert x['deployment_id'].startswith('dpl_')
           assert x['project_id']=='prj_XhDus3tQsyiLxrPccbQteXLwbB2a'
+          assert x['runtime_source_commit']==os.environ['EXPECTED_M1A5_RUNTIME_SHA']
           assert len(x['runtime_source_commit'])==40
           assert len(x['source_fingerprint'])==64
           assert len(x['source_provenance_blob_sha'])==40
@@ -68,7 +70,7 @@ jobs:
           mapfile -t CHANGED < <(git diff --name-only "$RUNTIME_SOURCE" HEAD)
           for f in "${CHANGED[@]}"; do
             case "$f" in
-              .github/m1a4-final-production-lock.json|.github/real-e2e-production-lock.json|.github/workflows/m1a4-final-delivery-live-acceptance.yml|.github/workflows/m1a1-delivery-runtime-live-acceptance.yml|.github/workflows/real-e2e-integration-acceptance.yml) ;;
+              .github/m1a4-final-production-lock.json|.github/real-e2e-production-lock.json|.github/workflows/m1a4-final-delivery-live-acceptance.yml|.github/workflows/m1a1-delivery-runtime-live-acceptance.yml|.github/workflows/real-e2e-integration-acceptance.yml|.github/workflows/m1a5-postfix-successor-v2.yml|.github/workflows/m1a5-blocked-root-diagnostic.yml|m1a5_acceptance/corpus.normal-natal.v1.json|m1a5_acceptance/frozen-manifest.json|m1a5_acceptance/oracle-core.mjs|m1a5_acceptance/oracle-runner.mjs|m1a5_acceptance/rubric.semantic-quality.v1.json|m1a5_successor/calibration-delta.v1.json|m1a5_successor/oracle-runner.mjs) ;;
               *) echo "Unexpected post-runtime mutation: $f"; exit 1 ;;
             esac
           done
