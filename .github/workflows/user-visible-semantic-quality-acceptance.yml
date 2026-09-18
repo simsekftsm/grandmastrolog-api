@@ -1,0 +1,197 @@
+name: User-Visible Semantic Quality Acceptance
+
+on:
+  push:
+    branches:
+      - semantic-quality-acceptance-20260918
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      RAILWAY_URL: https://grandmastrolog-api-production.up.railway.app
+      VERCEL_URL: https://grandmastrolog-delivery-runtime.vercel.app
+      ACCEPTED_HEAD: f6038980a06d481c9ae334aad4991194d5e4a59f
+      GM_API_SECRET: \${{ secrets.GM_API_SECRET }}
+
+    steps:
+      - name: Checkout isolated acceptance harness
+        uses: actions/checkout@v4
+
+      - name: Freeze accepted production boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GM_API_SECRET"
+          ACTUAL="$(git ls-remote origin refs/heads/m1a-1-delivery-runtime-foundation | awk '{print $1}')"
+          test "$ACTUAL" = "$ACCEPTED_HEAD"
+          curl -fsS "$VERCEL_URL/api/health" -o /tmp/vercel-health.json
+          curl -fsS "$RAILWAY_URL/integration/health" -o /tmp/railway-health.json
+          python3 - <<'PY'
+          import json
+          v=json.load(open('/tmp/vercel-health.json'))
+          r=json.load(open('/tmp/railway-health.json'))
+          assert v['ok'] is True and v['stage']=='M1A-4'
+          assert v['delivery_validator_enabled'] is True
+          assert v['final_delivery_authorized'] is True
+          assert v['raw_delivery_allowed'] is False
+          assert r['ok'] is True and r['legacy_ready'] is True
+          assert r['evidence_engine']=='grandmastrolog_swisseph_natal_v1'
+          PY
+
+      - name: Install calculation dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build frozen representative corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/gm-semantic
+          cat > /tmp/gm-semantic/corpus.json <<'JSON'
+          [
+            {"id":"SQ-A","birth":{"date":"2000-01-01","time":"12:00:00","timezone":"Europe/Istanbul","latitude":39.9208,"longitude":32.8541,"district":"Çankaya","city":"Ankara"}},
+            {"id":"SQ-B","birth":{"date":"1986-08-19","time":"06:40:00","timezone":"Europe/Istanbul","latitude":41.0082,"longitude":28.9784,"district":"Fatih","city":"İstanbul"}},
+            {"id":"SQ-C","birth":{"date":"1993-05-24","time":"21:15:00","timezone":"Europe/Istanbul","latitude":38.4237,"longitude":27.1428,"district":"Konak","city":"İzmir"}},
+            {"id":"SQ-D","birth":{"date":"2002-11-07","time":"14:05:00","timezone":"Europe/Istanbul","latitude":37.0662,"longitude":37.3833,"district":"Şahinbey","city":"Gaziantep"}}
+          ]
+          JSON
+          python3 - <<'PY'
+          import json
+          corpus=json.load(open('/tmp/gm-semantic/corpus.json'))
+          assert len(corpus)==4
+          assert len({x['id'] for x in corpus})==4
+          print("FROZEN_CORPUS="+",".join(x['id'] for x in corpus))
+          print("FROZEN_FAILURE_MODES=astro_conflict,generic_horoscope,boilerplate,section_duplication,mechanical_tone,robotic_transitions,specificity_loss,canonical_order_or_language,layout_takeover,evidenceless_pinpoint,semantic_drop_or_merge,optional_inclusion,calibration_position,quality_regression")
+          PY
+
+      - name: Produce real production final outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib
+          root=pathlib.Path('/tmp/gm-semantic')
+          for item in json.load(open(root/'corpus.json')):
+              p=root/(item['id']+'.request.json')
+              json.dump({"request_id":"semantic-quality-"+item['id'],"birth":item["birth"]},open(p,'w'),ensure_ascii=False)
+          PY
+          for file in /tmp/gm-semantic/SQ-*.request.json; do
+            id="$(basename "$file" .request.json)"
+            code="$(curl -sS -o "/tmp/gm-semantic/$id.response.json" -w '%{http_code}' -X POST "$RAILWAY_URL/natal/deliver" \
+              -H 'content-type: application/json' -H "x-gm-secret: $GM_API_SECRET" \
+              --data-binary "@$file")"
+            echo "$id HTTP=$code"
+            test "$code" = "200"
+          done
+
+      - name: Build deterministic evidence summaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in /tmp/gm-semantic/SQ-*.request.json; do
+            id="$(basename "$file" .request.json)"
+            node --input-type=module - "$file" "/tmp/gm-semantic/$id.evidence.json" <<'NODE'
+          import fs from 'fs';
+          import {buildNatalBindingInput} from './gm_integration/natal-evidence.js';
+          const input=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          const result=buildNatalBindingInput(input);
+          fs.writeFileSync(process.argv[3],JSON.stringify({
+            evidence_sha256:result.evidence_sha256,
+            verified_evidence:result.binding_input.verified_evidence
+          },null,2));
+          NODE
+          done
+
+      - name: Mechanical semantic-quality observations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re,glob,os,collections
+          required=[
+            '> ## • PROFİLİN •',
+            '> ## • HARİTANIN ÖZÜ •',
+            '> ## • PARA & KARİYER •',
+            '> ## • İLİŞKİLER •',
+            '> ## • AİLE •',
+            '> ## • KARMALAR •'
+          ]
+          optional=[
+            '> ## • ELEMENT DENGEN •',
+            '> ## • SENİN YOLUN •',
+            'SİNERJİSİ •'
+          ]
+          c1='Buraya kadarki ana yaşam alanları sende karşılık buluyor mu? **Evet / Hayır / Kısmen**'
+          c2='Bu anlattıklarım sende karşılık buluyor mu? **Evet / Hayır / Kısmen**'
+          ret='Natal kapısı tamamlandı; bundan sonra doğrudan istediğin konuya girebiliriz.'
+          observations=[]
+          sentence_bank=collections.defaultdict(set)
+          for path in sorted(glob.glob('/tmp/gm-semantic/SQ-*.response.json')):
+              case=os.path.basename(path).split('.')[0]
+              x=json.load(open(path))
+              assert x['ok'] is True
+              assert x['contract_version']=='gm.natal.v1'
+              assert x['delivery_state']=='final_delivery_validated'
+              out=x['output']
+              assert out.startswith('---\n> # • NATAL (DOĞUM) HARİTAN •\n')
+              positions=[out.find(h) for h in required]
+              assert all(p>=0 for p in positions) and positions==sorted(positions)
+              assert all(out.count(h)==1 for h in required)
+              assert out.count(c1)==1 and out.count(c2)==1 and out.count(ret)==1
+              assert out.find(c1) > out.find(required[-1])
+              assert out.find(c2) > out.find(c1)
+              assert out.find(ret) > out.find(c2)
+              assert all(marker not in out for marker in optional)
+              assert 'semantic_payload' not in out and 'raw_model_output' not in out
+              headings=[ln for ln in out.splitlines() if ln.startswith('> ## ')]
+              assert headings==required
+              chunks={}
+              for i,h in enumerate(required):
+                  start=out.index(h)
+                  end_candidates=[out.find(n,start+len(h)) for n in required[i+1:]]
+                  end_candidates += [out.find(c1,start+len(h))]
+                  end=min([e for e in end_candidates if e>=0],default=len(out))
+                  block=out[start:end]
+                  body_parts=[p.strip() for p in block.split('---')[1:] if p.strip()]
+                  body='\n'.join(body_parts)
+                  chunks[h]=body
+                  for s in re.split(r'(?<=[.!?])\s+',body):
+                      n=re.sub(r'\s+',' ',s.strip().lower())
+                      if len(n)>=80:
+                          sentence_bank[n].add(case)
+              lengths={h:len(v) for h,v in chunks.items()}
+              observations.append({
+                  'case':case,
+                  'output_chars':len(out),
+                  'section_body_chars':lengths,
+                  'required_heading_count':len(headings),
+                  'optional_heading_count':sum(out.count(m) for m in optional)
+              })
+          repeated=[{'sentence':s,'cases':sorted(cs)} for s,cs in sentence_bank.items() if len(cs)>=3]
+          json.dump({'cases':observations,'cross_case_repeated_long_sentences':repeated},open('/tmp/gm-semantic/observations.json','w'),ensure_ascii=False,indent=2)
+          print(open('/tmp/gm-semantic/observations.json').read())
+          PY
+
+      - name: Emit user-visible outputs and evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          for id in SQ-A SQ-B SQ-C SQ-D; do
+            echo "===== $id EVIDENCE ====="
+            python3 - "$id" <<'PY'
+          import json,sys
+          x=json.load(open('/tmp/gm-semantic/'+sys.argv[1]+'.evidence.json'))
+          for e in x['verified_evidence']:
+              print(e['evidence_id']+' | '+e['semantic_value'])
+          PY
+            echo "===== $id FINAL OUTPUT ====="
+            python3 - "$id" <<'PY'
+          import json,sys
+          x=json.load(open('/tmp/gm-semantic/'+sys.argv[1]+'.response.json'))
+          print(x['output'])
+          PY
+          done
