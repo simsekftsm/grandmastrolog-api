@@ -103,6 +103,45 @@ jobs:
             return parts.join('');
           }
 
+          function normalizeFormattingOnly(text){
+            if(typeof text!=='string') return text;
+            let out=text
+              .replace(/\*\*/g,'')
+              .replace(/__/g,'')
+              .replace(/`/g,'')
+              .replace(/(^|\n)\s{0,3}#{1,6}\s+/g,'$1')
+              .replace(/(^|\n)\s{0,3}>\s?/g,'$1')
+              .replace(/(^|\n)\s{0,3}[-+*]\s+/g,'$1')
+              .replace(/(^|\n)\s{0,3}(\d+)[.)]\s+/g,'$1$2 ')
+              .replace(/(^|\n)\s{0,3}---\s*(?=\n|$)/g,'$1');
+            return out;
+          }
+
+          function lexicalTokens(text){
+            return (String(text).match(/[\p{L}\p{N}]+/gu)||[]);
+          }
+
+          function normalizeCandidateFormatting(candidate){
+            const x=JSON.parse(JSON.stringify(candidate));
+            let changed=0;
+            const clean=(value)=>{
+              const next=normalizeFormattingOnly(value);
+              if(next!==value){
+                const before=lexicalTokens(value);
+                const after=lexicalTokens(next);
+                if(JSON.stringify(before)!==JSON.stringify(after)) throw new Error('NORMALIZER_LEXICAL_DRIFT');
+                changed++;
+              }
+              return next;
+            };
+            if(x?.prelude?.body_paragraphs) x.prelude.body_paragraphs=x.prelude.body_paragraphs.map(clean);
+            for(const s of x?.pre_seal_sections||[]) if(s?.body_paragraphs) s.body_paragraphs=s.body_paragraphs.map(clean);
+            if(typeof x?.personal_seal?.motto==='string') x.personal_seal.motto=clean(x.personal_seal.motto);
+            for(const s of x?.main_life_sections||[]) if(s?.body_paragraphs) s.body_paragraphs=s.body_paragraphs.map(clean);
+            for(const s of x?.special_contributions||[]) if(s?.body_paragraphs) s.body_paragraphs=s.body_paragraphs.map(clean);
+            return {candidate:x,changed};
+          }
+
           async function geminiCall(t,bi){
             await waitGap();
             const res=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{
@@ -146,10 +185,11 @@ jobs:
             if(!text) return {verdict:'UNKNOWN',reason:'GEMINI_OUTPUT_MISSING'};
             try{
               const parsed=JSON.parse(text);
+              const normalized=normalizeCandidateFormatting(parsed);
               const {evidenceMap,availability}=validateBindingInput(bi);
-              const canonical=canonicalizeModelPayload(parsed,evidenceMap,availability);
+              const canonical=canonicalizeModelPayload(normalized.candidate,evidenceMap,availability);
               makeValidatedEnvelope(canonical,evidenceMap,availability);
-              return {verdict:'PASS',canonical,usage:json?.usage||null};
+              return {verdict:'PASS',canonical,usage:json?.usage||null,normalization_count:normalized.changed};
             }catch(error){
               return {
                 verdict:'FAIL',
@@ -289,6 +329,7 @@ jobs:
                 matched_anchor_subjects:e.anchor.matched,
                 output_sha256:render.canonical_markdown_sha256,
                 usage:live.usage,
+                normalization_count:live.normalization_count||0,
                 _body:e.combinedBody,
                 _ev:bi.verified_evidence
               };
@@ -299,7 +340,8 @@ jobs:
                 canonical_markdown:render.canonical_markdown,
                 dimensions:e.dimensions,
                 producer_failures:e.producer_failures,
-                usage:live.usage
+                usage:live.usage,
+                normalization_count:live.normalization_count||0
               },null,2)+'\n');
               cases.push(item);
               console.log('GEMINI_CASE '+JSON.stringify({case_id:t.case_id,verdict,dimensions:Object.fromEntries(Object.entries(e.dimensions).map(([k,v])=>[k,v.verdict]))}));
@@ -338,10 +380,10 @@ jobs:
             const overall=aggregate([...cases.map(x=>x.verdict),...counterexample.map(x=>x.verdict)]);
             const result={
               overall,
-              acceptance_id:'M1A-5_GEMINI_3_5_FLASH_LITE_ISOLATED_SUCCESSOR',
+              acceptance_id:'M1A-5_GEMINI_3_5_FLASH_LITE_FORMAT_NORMALIZER_SUCCESSOR',
               runtime_base:'b5ee123cecdbe220a8db7957a64f881738c07b24',
               model:'gemini-3.5-flash-lite',
-              provider_schema:'compact_semantic_candidate_v1',
+              provider_schema:'compact_semantic_candidate_v1_plus_format_normalizer',
               frozen_corpus_sha256:'d9d0e964d28b0fbbc70f4767a75283a6056524fed945dd39710a11693c0987c',
               frozen_rubric_sha256:'9cd31fe783d49326e16988dbd3c63d148f98d9343c0b2991bb9209011ab71ad4',
               successor_delta_id:delta.successor_delta_id,
