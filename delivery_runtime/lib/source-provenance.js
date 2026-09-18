@@ -5,7 +5,7 @@
 const FILES = Object.freeze({
   'delivery_runtime/api/delivery.js': '58c8ff9e97b7a02542d8d34afbcdbe8767752ee0',
   'delivery_runtime/api/health.js': '536e3061a23bab293aa9ebf5cf2cb2b41ab2b772',
-  'delivery_runtime/api/model-natal.js': '046d62aac226be26207283692d22cf646a67102e',
+  'delivery_runtime/api/model-natal.js': '15ec08c391e768f3da4914736de1fe07284ba405',
   'delivery_runtime/api/render-natal.js': '6e6e83ec0098b0cfde0e1f1aee2f7831a34a989f',
   'delivery_runtime/api/validate-natal.js': '80b215152fab6835bcb4e3d1cd8938462b107124',
   'delivery_runtime/contracts/gm-natal-semantic-v1.schema.json': 'ee6fdd7c5a83aa9b897437987bbabaffddc6fa62',
@@ -26,7 +26,7 @@ const FILES = Object.freeze({
   'delivery_runtime/vercel.json': '0948e04cdd2407cb4c3ce4923570a98726d9808c'
 });
 
-const FINGERPRINT = '67d90a64dd60f566dc975739e765d3aa9e16ff3dd42fc4ab148950f72e4e803a';
+const FINGERPRINT = '4f481d93a14b55329f06d0ecb834ee4010851ab9d10b748341d13fcb0ea62662';
 
 function sourceProvenance() {
   return {
