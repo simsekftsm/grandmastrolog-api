@@ -21,6 +21,7 @@ jobs:
       VERCEL_URL: https://grandmastrolog-delivery-runtime.vercel.app
       GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
     steps:
       - name: Checkout exact successor state
@@ -35,6 +36,7 @@ jobs:
           set -euo pipefail
           test -n "${GM_API_SECRET:-}" || { echo 'BLOCKED:GM_API_SECRET_MISSING'; exit 2; }
           test -n "${GROQ_API_KEY:-}" || { echo 'BLOCKED:GROQ_API_KEY_MISSING'; exit 2; }
+          test -n "${GEMINI_API_KEY:-}" || { echo 'BLOCKED:GEMINI_API_KEY_MISSING'; exit 2; }
           git cat-file -e "$RUNTIME_SHA^{commit}"
           git diff --exit-code "$RUNTIME_SHA" HEAD -- delivery_runtime gm_integration integration-server.js openapi.yaml Dockerfile package.json package-lock.json
           git fetch --no-tags --depth=1 origin "$FROZEN_SHA"
