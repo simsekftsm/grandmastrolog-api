@@ -13,6 +13,7 @@ const { groqGenerationFormat, groqModelInstructions } = require('../lib/groq-bin
 
 const GROQ_RESPONSES_URL = 'https://api.groq.com/openai/v1/responses';
 const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-120b';
+const MAX_GROQ_OUTPUT_TOKENS = 3072;
 const MODEL_BINDING = 'groq_responses_json_schema_strict';
 
 function extractOutputText(response) {
@@ -59,6 +60,7 @@ module.exports = async function modelNatal(req, res) {
       },
       body: JSON.stringify({
         model,
+        max_output_tokens: MAX_GROQ_OUTPUT_TOKENS,
         instructions: groqModelInstructions(availability, req.body.verified_evidence),
         input: req.body.semantic_input,
         text: { format: groqGenerationFormat(req.body.verified_evidence, availability) }
