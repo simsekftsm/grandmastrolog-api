@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      TARGET_SHA: 022753905d6645b5a3e8c01681612589aa84de32
+      TARGET_SHA: 3363af042ff70f7ed3d2caab8b094d69b1eaf1e7
     steps:
       - name: Checkout exact fix candidate
         uses: actions/checkout@v5
@@ -27,7 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
-          git diff --name-only ce60c472023faa3e0822f84e13ba556f93a4b171 HEAD | sort > /tmp/changed
+          git diff --name-only 49d56e4585f0ab1a6b6fc550e3f2fe1651964371 HEAD | sort > /tmp/changed
           printf '%s\n'             delivery_runtime/api/e2e-natal.js             delivery_runtime/api/model-natal.js             delivery_runtime/tests/api.test.js \
             delivery_runtime/lib/source-provenance.js | sort > /tmp/expected
           diff -u /tmp/expected /tmp/changed
@@ -49,3 +49,10 @@ jobs:
           test "$TESTS" = "108"
           test "$PASS" = "108"
           test "$FAIL" = "0"
+
+      - name: Run integration regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          node --test integration_tests/natal-evidence.test.mjs integration_tests/e2e-runtime.test.mjs
