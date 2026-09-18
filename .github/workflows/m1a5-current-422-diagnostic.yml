@@ -1,0 +1,74 @@
+name: M1A-5 Current 422 Diagnostic
+
+on:
+  push:
+    branches:
+      - m1a5-upstream-diagnostic-20260918
+    paths:
+      - '.github/workflows/m1a5-current-422-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  current-422-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET_SHA: 49d56e4585f0ab1a6b6fc550e3f2fe1651964371
+      BASE_URL: https://grandmastrolog-delivery-runtime.vercel.app
+      GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
+
+    steps:
+      - name: Checkout exact current head
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+
+      - name: Build exact M1A-4 model fixture and make one trusted call
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GM_API_SECRET:-}" || { echo 'BLOCKED: GM_API_SECRET_MISSING'; exit 2; }
+
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const {availability,bindingInput}=require('./delivery_runtime/tests/helpers');
+          fs.writeFileSync('/tmp/model.json',JSON.stringify(bindingInput(availability())));
+          NODE
+
+          read -r TS SIG <<< "$(node - <<'NODE'
+          const fs=require('node:fs');
+          const {signTrustedRequest}=require('./delivery_runtime/lib/trust-boundary');
+          const body=JSON.parse(fs.readFileSync('/tmp/model.json','utf8'));
+          const s=signTrustedRequest({secret:process.env.GM_API_SECRET,routeId:'model-natal',body});
+          process.stdout.write(s.timestamp+' '+s.signature);
+          NODE
+          )"
+
+          STATUS=$(curl -sS -o /tmp/model-out.json -w '%{http_code}' -X POST "$BASE_URL/api/model-natal" \
+            -H 'content-type: application/json' \
+            -H "authorization: Bearer $GM_API_SECRET" \
+            -H 'x-gm-evidence-source: grandmastrolog-api' \
+            -H "x-gm-evidence-timestamp: $TS" \
+            -H "x-gm-evidence-signature: $SIG" \
+            --data-binary @/tmp/model.json)
+
+          python3 - "$STATUS" <<'PY'
+          import json,sys
+          try:
+              x=json.load(open('/tmp/model-out.json',encoding='utf-8'))
+          except Exception:
+              x={}
+          safe={
+              'status':sys.argv[1],
+              'ok':x.get('ok'),
+              'code':x.get('code'),
+              'path':x.get('path'),
+              'provider':x.get('upstream_provider') or x.get('provider'),
+              'upstream_status':x.get('upstream_status'),
+              'model':x.get('model')
+          }
+          print('SAFE_CURRENT_422_DIAG '+json.dumps(safe,ensure_ascii=False,sort_keys=True))
+          PY
