@@ -1,0 +1,247 @@
+name: M1A-5 Luna Final Acceptance
+
+on:
+  push:
+    branches:
+      - m1a5-root-repair-runtime-4608
+    paths:
+      - '.github/workflows/m1a5-luna-final-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  final-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      FROZEN_SHA: fb1f0498cd0a7c49580cfde574a407e00e2bc20b
+      GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify frozen acceptance identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$FROZEN_SHA"
+          for f in             m1a5_acceptance/corpus.normal-natal.v1.json             m1a5_acceptance/rubric.semantic-quality.v1.json             m1a5_acceptance/frozen-manifest.json             m1a5_acceptance/oracle-core.mjs
+          do
+            test "$(git rev-parse "HEAD:$f")" = "$(git rev-parse "FETCH_HEAD:$f")" || {
+              echo "FAIL:FROZEN_ARTIFACT_DRIFT:$f"
+              exit 1
+            }
+          done
+          python3 - <<'PY'
+          import hashlib,json
+          m=json.load(open('m1a5_acceptance/frozen-manifest.json',encoding='utf-8'))
+          for p,k in [
+            ('m1a5_acceptance/corpus.normal-natal.v1.json','corpus_sha256'),
+            ('m1a5_acceptance/rubric.semantic-quality.v1.json','rubric_sha256')
+          ]:
+              assert hashlib.sha256(open(p,'rb').read()).hexdigest()==m[k]
+          print('FROZEN_IDENTITY=PASS')
+          PY
+
+      - name: Install root dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Delivery runtime regression
+        run: node --test delivery_runtime/tests/*.test.js
+
+      - name: Integration regression
+        run: node --test integration_tests/natal-evidence.test.mjs integration_tests/e2e-runtime.test.mjs
+
+      - name: Verify runtime secrets
+        id: secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GM_API_SECRET:-}" && echo "GM_API_SECRET_GATE=PASS" || { echo "GM_API_SECRET_GATE=BLOCKED"; exit 2; }
+          test -n "${OPENAI_API_KEY:-}" && echo "OPENAI_API_KEY_GATE=PASS" || { echo "OPENAI_API_KEY_GATE=BLOCKED"; exit 2; }
+
+      - name: Run Luna frozen M1A-5 acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p m1a5_luna/run-artifacts
+          node <<'NODE'
+          const fs=require('node:fs');
+          const {buildNatalBindingInput}=require('./gm_integration/natal-evidence.js');
+          const {generateSemanticCandidate,DEFAULT_MODEL,DEFAULT_PROVIDER}=require('./delivery_runtime/lib/provider-adapter.js');
+          const {canonicalizeModelPayload}=require('./delivery_runtime/lib/model-binding.js');
+          const {validateBindingInput,makeValidatedEnvelope}=require('./delivery_runtime/lib/natal-contract.js');
+          const {renderCanonicalNatal}=require('./delivery_runtime/lib/natal-renderer.js');
+
+          const corpus=JSON.parse(fs.readFileSync('m1a5_acceptance/corpus.normal-natal.v1.json','utf8'));
+
+          (async()=>{
+            const {evaluate,anchorScore,producer,aggregate}=await import('./m1a5_acceptance/oracle-core.mjs');
+            const frozenRubric=JSON.parse(fs.readFileSync('m1a5_acceptance/rubric.semantic-quality.v1.json','utf8'));
+            const delta=JSON.parse(fs.readFileSync('m1a5_successor/calibration-delta.v1.json','utf8'));
+            const rubric=JSON.parse(JSON.stringify(frozenRubric));
+
+            const old=delta.superseded_markers;
+            const markers=rubric.canonical_language.required_markers_exact_once_in_order;
+            if(delta.mutation_scope!=='canonical_language.required_markers_exact_once_in_order') throw new Error('DELTA_SCOPE_INVALID');
+            if(delta.semantic_thresholds_unchanged!==true) throw new Error('DELTA_THRESHOLDS_UNLOCKED');
+            if(!old.every(x=>markers.filter(y=>y===x).length===1)) throw new Error('DELTA_MARKER_IDENTITY');
+            const at=Math.min(...old.map(x=>markers.indexOf(x)));
+            const next=markers.filter(x=>!old.includes(x));
+            next.splice(at,0,delta.authorized_marker);
+            rubric.canonical_language.required_markers_exact_once_in_order=next;
+
+            const cases=[];
+            for(const t of corpus.cases){
+              const bi=buildNatalBindingInput({request_id:t.request_id,birth:t.birth}).binding_input;
+              let generated;
+              try {
+                generated=await generateSemanticCandidate(bi);
+              } catch(error) {
+                const verdict=(error?.code==='MODEL_BINDING_UPSTREAM_FAIL'||error?.code==='MODEL_BINDING_TIMEOUT'||error?.code==='RUNTIME_SECRET_OR_MODEL_BINDING_UNAVAILABLE')?'BLOCKED':'FAIL';
+                const item={
+                  case_id:t.case_id,
+                  verdict,
+                  reason:error?.code||'LUNA_GENERATION_ERROR',
+                  upstream_status:error?.upstream_status??null
+                };
+                cases.push(item);
+                console.log('LUNA_CASE '+JSON.stringify(item));
+                continue;
+              }
+
+              try {
+                const {evidenceMap,availability}=validateBindingInput(bi);
+                const canonical=canonicalizeModelPayload(generated.candidate,evidenceMap,availability);
+                makeValidatedEnvelope(canonical,evidenceMap,availability);
+                const render=renderCanonicalNatal(bi,canonical);
+                const e=evaluate(render.canonical_markdown,bi.verified_evidence,rubric);
+                const verdict=aggregate(Object.values(e.dimensions).map(x=>x.verdict));
+                const item={
+                  case_id:t.case_id,
+                  verdict,
+                  dimensions:e.dimensions,
+                  producer_failures:e.producer_failures,
+                  normalization_count:generated.normalization_count,
+                  output_sha256:render.canonical_markdown_sha256,
+                  _body:e.combinedBody,
+                  _ev:bi.verified_evidence
+                };
+                fs.writeFileSync('m1a5_luna/run-artifacts/'+t.case_id+'.json',JSON.stringify({
+                  case_id:t.case_id,
+                  provider:generated.provider,
+                  model:generated.model,
+                  normalization_count:generated.normalization_count,
+                  output_sha256:render.canonical_markdown_sha256,
+                  canonical_markdown:render.canonical_markdown,
+                  dimensions:e.dimensions,
+                  producer_failures:e.producer_failures
+                },null,2)+'\n');
+                cases.push(item);
+                console.log('LUNA_CASE '+JSON.stringify({
+                  case_id:t.case_id,
+                  verdict,
+                  normalization_count:generated.normalization_count,
+                  dimensions:Object.fromEntries(Object.entries(e.dimensions).map(([k,v])=>[k,v.verdict]))
+                }));
+              } catch(error) {
+                const item={case_id:t.case_id,verdict:'FAIL',reason:error?.code||error?.message||'DOWNSTREAM_VALIDATION'};
+                cases.push(item);
+                console.log('LUNA_CASE '+JSON.stringify(item));
+              }
+            }
+
+            const complete=cases.filter(x=>x._body&&x._ev);
+            const counterexample=[];
+            if(complete.length!==corpus.cases.length){
+              counterexample.push({verdict:'UNKNOWN',reason:'COUNTEREXAMPLE_REQUIRES_ALL_CORPUS_OUTPUTS'});
+            } else {
+              for(const own of complete){
+                const ownScore=anchorScore(own._body,own._ev,rubric.specificity.anchor_subjects).score;
+                let bestOther=0;
+                const comparisons=[];
+                for(const other of complete){
+                  if(other.case_id===own.case_id) continue;
+                  const score=anchorScore(own._body,other._ev,rubric.specificity.anchor_subjects).score;
+                  bestOther=Math.max(bestOther,score);
+                  comparisons.push({against_case_id:other.case_id,score});
+                }
+                const margin=ownScore-bestOther;
+                const pass=ownScore>=rubric.counterexample_specificity.minimum_own_anchor_score &&
+                  margin>=rubric.counterexample_specificity.minimum_margin_over_best_other_case;
+                counterexample.push({
+                  case_id:own.case_id,
+                  verdict:pass?'PASS':'FAIL',
+                  own_anchor_score:ownScore,
+                  best_other_case_score:bestOther,
+                  margin,
+                  comparisons,
+                  producer:pass?null:producer('counterexample_specificity')
+                });
+              }
+            }
+
+            for(const x of cases){delete x._body;delete x._ev}
+            const overall=aggregate([...cases.map(x=>x.verdict),...counterexample.map(x=>x.verdict)]);
+            const result={
+              overall,
+              acceptance_id:'M1A-5_LUNA_FINAL',
+              provider:DEFAULT_PROVIDER,
+              model:DEFAULT_MODEL,
+              provider_adapter:'provider_adapter_openai_responses_json_schema_strict_v1',
+              semantic_normalizer:'formatting_only_lexical_invariant_v1',
+              frozen_corpus_sha256:'d9d0e964d28b0fbbc70f4767a75283a6056524fed945dd39710a11693c0987c',
+              frozen_rubric_sha256:'9cd31fe783d49326e16988dbd3c63d148f98d9343c0b2991bb9209011ab71ad4',
+              successor_delta_id:delta.successor_delta_id,
+              cases,
+              counterexample_specificity:counterexample
+            };
+            fs.writeFileSync('m1a5_luna/run-artifacts/results.json',JSON.stringify(result,null,2)+'\n');
+            console.log('LUNA_M1A5_OVERALL='+overall);
+            for(const z of counterexample) console.log('LUNA_COUNTEREXAMPLE '+JSON.stringify(z));
+            if(overall!=='PASS') process.exitCode=1;
+          })().catch(e=>{
+            console.error('LUNA_ACCEPTANCE_ERROR '+String(e?.name||'')+':'+String(e?.message||e));
+            process.exit(1);
+          });
+          NODE
+
+      - name: Upload Luna acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1a5-luna-final-${{ github.sha }}
+          path: m1a5_luna/run-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Final acceptance gate
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f m1a5_luna/run-artifacts/results.json || {
+            echo 'M1A5_LUNA_FINAL=BLOCKED'
+            exit 2
+          }
+          python3 - <<'PY'
+          import json
+          x=json.load(open('m1a5_luna/run-artifacts/results.json',encoding='utf-8'))
+          print('M1A5_LUNA_FINAL='+str(x.get('overall')))
+          for c in x.get('cases',[]):
+              print('CASE',c.get('case_id'),c.get('verdict'),c.get('reason',''),'normalizations='+str(c.get('normalization_count','')))
+          for z in x.get('counterexample_specificity',[]):
+              print('COUNTEREXAMPLE',json.dumps(z,ensure_ascii=False,sort_keys=True))
+          v=x.get('overall')
+          if v=='PASS': raise SystemExit(0)
+          if v=='FAIL': raise SystemExit(1)
+          if v=='BLOCKED': raise SystemExit(2)
+          raise SystemExit(3)
+          PY
