@@ -61,42 +61,42 @@ test('validate-natal rejects method boundary', async () => {
   assert.equal(res.statusCode, 405);
 });
 
-test('model-natal fails closed when OpenAI provider secret is absent even if legacy Groq secret exists', async () => {
-  const oldOpenAI = process.env.OPENAI_API_KEY;
+test('model-natal fails closed when Gemini provider secret is absent even if legacy Groq secret exists', async () => {
+  const oldGemini = process.env.GEMINI_API_KEY;
   const oldGroq = process.env.GROQ_API_KEY;
-  delete process.env.OPENAI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
   process.env.GROQ_API_KEY = 'must-not-be-used';
   const body = bindingInput();
   const res = fakeResponse();
   await modelNatal(trustedRequest('model-natal', body), res);
   assert.equal(res.statusCode, 503);
   assert.equal(res.body.code, 'RUNTIME_SECRET_OR_MODEL_BINDING_UNAVAILABLE');
-  if (oldOpenAI !== undefined) process.env.OPENAI_API_KEY = oldOpenAI; else delete process.env.OPENAI_API_KEY;
+  if (oldGemini !== undefined) process.env.GEMINI_API_KEY = oldGemini; else delete process.env.GEMINI_API_KEY;
   if (oldGroq !== undefined) process.env.GROQ_API_KEY = oldGroq; else delete process.env.GROQ_API_KEY;
 });
 
-test('model-natal fails closed before upstream call when canonical Luna model override violates freeze', async () => {
-  const oldOpenAI = process.env.OPENAI_API_KEY;
+test('model-natal fails closed before upstream call when canonical Gemini model override violates freeze', async () => {
+  const oldGemini = process.env.GEMINI_API_KEY;
   const oldModel = process.env.GM_MODEL;
-  process.env.OPENAI_API_KEY = 'test-secret';
+  process.env.GEMINI_API_KEY = 'test-secret';
   process.env.GM_MODEL = 'wrong/model';
   const body = bindingInput();
   const res = fakeResponse();
   await modelNatal(trustedRequest('model-natal', body), res);
   assert.equal(res.statusCode, 503);
   assert.equal(res.body.code, 'RUNTIME_MODEL_FREEZE_VIOLATION');
-  assert.equal(res.body.expected_provider, 'openai');
-  assert.equal(res.body.expected_model, 'gpt-5.6-luna');
-  if (oldOpenAI !== undefined) process.env.OPENAI_API_KEY = oldOpenAI; else delete process.env.OPENAI_API_KEY;
+  assert.equal(res.body.expected_provider, 'google');
+  assert.equal(res.body.expected_model, 'gemini-3.1-flash-lite');
+  if (oldGemini !== undefined) process.env.GEMINI_API_KEY = oldGemini; else delete process.env.GEMINI_API_KEY;
   if (oldModel !== undefined) process.env.GM_MODEL = oldModel; else delete process.env.GM_MODEL;
 });
 
 test('model-natal upstream failure fails closed without exposing raw provider output', async () => {
-  const oldOpenAI = process.env.OPENAI_API_KEY;
+  const oldGemini = process.env.GEMINI_API_KEY;
   const oldModel = process.env.GM_MODEL;
   const oldProvider = process.env.GM_MODEL_PROVIDER;
   const oldFetch = global.fetch;
-  process.env.OPENAI_API_KEY = 'test-secret';
+  process.env.GEMINI_API_KEY = 'test-secret';
   delete process.env.GM_MODEL;
   delete process.env.GM_MODEL_PROVIDER;
   let outboundBody;
@@ -109,26 +109,26 @@ test('model-natal upstream failure fails closed without exposing raw provider ou
     const res = fakeResponse();
     await modelNatal(trustedRequest('model-natal', body), res);
     assert.equal(res.statusCode, 502);
-    assert.deepEqual(res.body, { ok: false, code: 'MODEL_BINDING_UPSTREAM_FAIL', upstream_provider: 'openai', upstream_status: 503 });
+    assert.deepEqual(res.body, { ok: false, code: 'MODEL_BINDING_UPSTREAM_FAIL', upstream_provider: 'google', upstream_status: 503 });
     assert.equal(JSON.stringify(res.body).includes('raw'), false);
-    assert.equal(outboundBody.model, 'gpt-5.6-luna');
-    assert.equal(outboundBody.max_output_tokens, 16384);
+    assert.equal(outboundBody.model, 'gemini-3.1-flash-lite');
+    assert.equal(outboundBody.generation_config.max_output_tokens, 8192);
     assert.equal(outboundBody.reasoning.effort, 'medium');
-    assert.equal(outboundBody.text.format.type, 'json_schema');
+    assert.equal(outboundBody.response_format.type, 'text');\n    assert.equal(outboundBody.response_format.mime_type, 'application/json');
   } finally {
     global.fetch = oldFetch;
-    if (oldOpenAI !== undefined) process.env.OPENAI_API_KEY = oldOpenAI; else delete process.env.OPENAI_API_KEY;
+    if (oldGemini !== undefined) process.env.GEMINI_API_KEY = oldGemini; else delete process.env.GEMINI_API_KEY;
     if (oldModel !== undefined) process.env.GM_MODEL = oldModel; else delete process.env.GM_MODEL;
     if (oldProvider !== undefined) process.env.GM_MODEL_PROVIDER = oldProvider; else delete process.env.GM_MODEL_PROVIDER;
   }
 });
 
 test('model-natal upstream timeout fails closed and cannot become delivery output', async () => {
-  const oldOpenAI = process.env.OPENAI_API_KEY;
+  const oldGemini = process.env.GEMINI_API_KEY;
   const oldModel = process.env.GM_MODEL;
   const oldProvider = process.env.GM_MODEL_PROVIDER;
   const oldFetch = global.fetch;
-  process.env.OPENAI_API_KEY = 'test-secret';
+  process.env.GEMINI_API_KEY = 'test-secret';
   delete process.env.GM_MODEL;
   delete process.env.GM_MODEL_PROVIDER;
   global.fetch = async () => {
@@ -141,10 +141,10 @@ test('model-natal upstream timeout fails closed and cannot become delivery outpu
     const res = fakeResponse();
     await modelNatal(trustedRequest('model-natal', body), res);
     assert.equal(res.statusCode, 504);
-    assert.deepEqual(res.body, { ok: false, code: 'MODEL_BINDING_TIMEOUT', upstream_provider: 'openai' });
+    assert.deepEqual(res.body, { ok: false, code: 'MODEL_BINDING_TIMEOUT', upstream_provider: 'google' });
   } finally {
     global.fetch = oldFetch;
-    if (oldOpenAI !== undefined) process.env.OPENAI_API_KEY = oldOpenAI; else delete process.env.OPENAI_API_KEY;
+    if (oldGemini !== undefined) process.env.GEMINI_API_KEY = oldGemini; else delete process.env.GEMINI_API_KEY;
     if (oldModel !== undefined) process.env.GM_MODEL = oldModel; else delete process.env.GM_MODEL;
     if (oldProvider !== undefined) process.env.GM_MODEL_PROVIDER = oldProvider; else delete process.env.GM_MODEL_PROVIDER;
   }
