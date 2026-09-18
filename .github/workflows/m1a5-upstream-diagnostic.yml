@@ -1,0 +1,104 @@
+name: M1A-5 Upstream Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upstream-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TARGET_SHA: fb1f0498cd0a7c49580cfde574a407e00e2bc20b
+      EXPECTED_CORPUS_SHA256: d9d0e964d28b0fbbc70f4767a75283a6056524fed945dd39710a11693c0987c4
+      EXPECTED_RUBRIC_SHA256: 9cd31fe783d49326e16988dbd3c63d148f98d9343c0b2991bb9209011ab71ad4
+      VERCEL_URL: https://grandmastrolog-delivery-runtime.vercel.app
+      GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
+
+    steps:
+      - name: Checkout exact frozen candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+
+      - name: Verify frozen candidate and hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(sha256sum m1a5_acceptance/corpus.normal-natal.v1.json | awk '{print $1}')" = "$EXPECTED_CORPUS_SHA256"
+          test "$(sha256sum m1a5_acceptance/rubric.semantic-quality.v1.json | awk '{print $1}')" = "$EXPECTED_RUBRIC_SHA256"
+          test -n "${GM_API_SECRET:-}" || { echo 'BLOCKED: GM_API_SECRET_MISSING'; exit 2; }
+
+      - name: Install evidence-engine dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Direct trusted Vercel diagnostic for frozen blocked cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { buildNatalBindingInput } = require('./gm_integration/natal-evidence.js');
+          const { signTrustedRequest } = require('./delivery_runtime/lib/trust-boundary');
+
+          const corpus = JSON.parse(fs.readFileSync('m1a5_acceptance/corpus.normal-natal.v1.json', 'utf8'));
+          const wanted = new Set(['NATAL_SYN_02', 'NATAL_SYN_03']);
+          const cases = corpus.cases.filter((x) => wanted.has(x.case_id));
+          if (cases.length !== 2) throw new Error('FROZEN_CASES_MISSING');
+
+          async function runCase(testCase) {
+            const input = { request_id: testCase.request_id, birth: testCase.birth };
+            const evidence = buildNatalBindingInput(input);
+            const body = { binding_input: evidence.binding_input };
+            const signed = signTrustedRequest({
+              secret: process.env.GM_API_SECRET,
+              routeId: 'e2e-natal',
+              body
+            });
+
+            const response = await fetch(process.env.VERCEL_URL + '/api/e2e-natal', {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                'authorization': 'Bearer ' + process.env.GM_API_SECRET,
+                'x-gm-evidence-source': 'grandmastrolog-api',
+                'x-gm-evidence-timestamp': signed.timestamp,
+                'x-gm-evidence-signature': signed.signature
+              },
+              body: JSON.stringify(body),
+              signal: AbortSignal.timeout(70000)
+            });
+
+            let json = {};
+            try { json = await response.json(); } catch {}
+            const safe = {
+              case_id: testCase.case_id,
+              outer_http_status: response.status,
+              ok: json.ok ?? null,
+              code: json.code ?? null,
+              upstream_provider: json.upstream_provider ?? null,
+              upstream_status: json.upstream_status ?? null,
+              retry_after: response.headers.get('retry-after'),
+              ratelimit_limit: response.headers.get('ratelimit-limit'),
+              ratelimit_remaining: response.headers.get('ratelimit-remaining'),
+              ratelimit_reset: response.headers.get('ratelimit-reset'),
+              x_ratelimit_limit_requests: response.headers.get('x-ratelimit-limit-requests'),
+              x_ratelimit_remaining_requests: response.headers.get('x-ratelimit-remaining-requests'),
+              x_ratelimit_reset_requests: response.headers.get('x-ratelimit-reset-requests')
+            };
+            console.log('SAFE_UPSTREAM_DIAG ' + JSON.stringify(safe));
+          }
+
+          (async () => {
+            for (const testCase of cases) {
+              await runCase(testCase);
+            }
+          })().catch((error) => {
+            console.error('DIAGNOSTIC_ERROR ' + String(error?.name || '') + ':' + String(error?.message || error));
+            process.exit(1);
+          });
+          NODE
