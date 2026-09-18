@@ -170,6 +170,10 @@ jobs:
           assert x['swisseph']['ok'] is True
           PY
 
+      - name: TPM pacing before physical production model call
+        shell: bash
+        run: sleep 75
+
       - name: One physical synthetic Natal request traverses the whole production chain
         shell: bash
         run: |
