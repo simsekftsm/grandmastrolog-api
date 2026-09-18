@@ -1,0 +1,9 @@
+{
+  "manifest_id": "m1a5-frozen-inputs-v1",
+  "baseline_head": "f6038980a06d481c9ae334aad4991194d5e4a59f",
+  "corpus_file": "m1a5_acceptance/corpus.normal-natal.v1.json",
+  "corpus_sha256": "d9d0e964d28b0fbbc70f4767a75283a6056524fed945dd39710a11693c0987c4",
+  "rubric_file": "m1a5_acceptance/rubric.semantic-quality.v1.json",
+  "rubric_sha256": "9cd31fe783d49326e16988dbd3c63d148f98d9343c0b2991bb9209011ab71ad4",
+  "frozen_before_first_production_run": true
+}
