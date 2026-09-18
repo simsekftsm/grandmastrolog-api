@@ -16,7 +16,7 @@ jobs:
       RAILWAY_URL: https://grandmastrolog-api-production.up.railway.app
       VERCEL_URL: https://grandmastrolog-delivery-runtime.vercel.app
       ACCEPTED_HEAD: f6038980a06d481c9ae334aad4991194d5e4a59f
-      GM_API_SECRET: \${{ secrets.GM_API_SECRET }}
+      GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
 
     steps:
       - name: Checkout isolated acceptance harness
