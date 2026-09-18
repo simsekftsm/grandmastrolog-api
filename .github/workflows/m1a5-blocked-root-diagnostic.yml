@@ -156,7 +156,7 @@ jobs:
               type:'array',
               minItems:min,
               maxItems:max,
-              items:{type:'string',enum:evidenceIds}
+              items:{type:'string'}
             });
             const paragraphs=(max)=>({
               type:'array',
@@ -179,7 +179,7 @@ jobs:
               additionalProperties:false,
               required:['contribution_id','body_paragraphs','evidence_refs'],
               properties:{
-                contribution_id:{type:'string',enum:specialEnum},
+                contribution_id:specialEnum.length?{type:'string',enum:specialEnum}:{type:'string'},
                 body_paragraphs:paragraphs(4),
                 evidence_refs:refs(1,12)
               }
