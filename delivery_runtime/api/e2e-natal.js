@@ -9,7 +9,7 @@ const {
   makeValidatedEnvelope
 } = require('../lib/natal-contract');
 const { canonicalizeModelPayload } = require('../lib/model-binding');
-const { groqGenerationFormat, groqModelInstructions } = require('../lib/groq-binding');
+const { GROQ_MAX_OUTPUT_TOKENS, groqGenerationFormat, groqModelInstructions } = require('../lib/groq-binding');
 const {
   DeliveryValidationError,
   validateFinalDelivery
@@ -92,6 +92,7 @@ module.exports = async function e2eNatal(req, res) {
         model: DEFAULT_GROQ_MODEL,
         instructions: groqModelInstructions(availability, bindingInput.verified_evidence),
         input: bindingInput.semantic_input,
+        max_output_tokens: GROQ_MAX_OUTPUT_TOKENS,
         text: { format: groqGenerationFormat(bindingInput.verified_evidence, availability) }
       }),
       signal: AbortSignal.timeout(50000)
