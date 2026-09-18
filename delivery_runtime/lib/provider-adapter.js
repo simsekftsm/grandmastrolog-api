@@ -1,7 +1,7 @@
 'use strict';
 
 const { providerGenerationFormat, providerModelInstructions } = require('./semantic-generation');
-const { normalizeSemanticCandidate } = require('./semantic-normalizer');
+const { SemanticNormalizationError, normalizeSemanticCandidate } = require('./semantic-normalizer');
 
 const DEFAULT_PROVIDER = 'openai';
 const DEFAULT_MODEL = 'gpt-5.6-luna';
@@ -119,7 +119,18 @@ async function generateSemanticCandidate(bindingInput, options = {}) {
     });
   }
 
-  const normalized = normalizeSemanticCandidate(parsed);
+  let normalized;
+  try {
+    normalized = normalizeSemanticCandidate(parsed);
+  } catch (error) {
+    if (error instanceof SemanticNormalizationError) {
+      throw new ProviderAdapterError('MODEL_SEMANTIC_NORMALIZATION_FAIL', 500, {
+        upstream_provider: config.provider
+      });
+    }
+    throw error;
+  }
+
   return {
     provider: config.provider,
     model: config.model,
