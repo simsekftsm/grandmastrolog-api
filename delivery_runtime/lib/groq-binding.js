@@ -7,6 +7,8 @@ const {
   modelInstructions
 } = require('./natal-contract');
 
+const GROQ_MAX_OUTPUT_TOKENS = 4608;
+
 function uniqueVerifiedEvidenceIds(verifiedEvidence) {
   return [...new Set(
     (Array.isArray(verifiedEvidence) ? verifiedEvidence : [])
@@ -65,4 +67,4 @@ function groqModelInstructions(availability, verifiedEvidence) {
   ].join('\n');
 }
 
-module.exports = { groqGenerationFormat, groqModelInstructions };
+module.exports = { GROQ_MAX_OUTPUT_TOKENS, groqGenerationFormat, groqModelInstructions };
