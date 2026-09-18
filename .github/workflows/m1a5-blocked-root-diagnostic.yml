@@ -116,7 +116,7 @@ jobs:
                 'content-type':'application/json'
               },
               body:JSON.stringify({
-                model:'gemini-3.1-flash-lite',
+                model:'gemini-3.5-flash-lite',
                 input:'SEMANTIC_INPUT_JSON:\n'+JSON.stringify(bi.semantic_input),
                 system_instruction:groqModelInstructions(bi.availability,bi.verified_evidence),
                 response_format:{
@@ -298,7 +298,7 @@ jobs:
               };
               fs.writeFileSync('m1a5_gemini/run-artifacts/'+t.case_id+'.json',JSON.stringify({
                 case_id:t.case_id,
-                model:'gemini-3.1-flash-lite',
+                model:'gemini-3.5-flash-lite',
                 output_sha256:render.canonical_markdown_sha256,
                 canonical_markdown:render.canonical_markdown,
                 dimensions:e.dimensions,
@@ -342,9 +342,9 @@ jobs:
             const overall=aggregate([...cases.map(x=>x.verdict),...counterexample.map(x=>x.verdict)]);
             const result={
               overall,
-              acceptance_id:'M1A-5_GEMINI_3_6_FLASH_ISOLATED_SUCCESSOR',
+              acceptance_id:'M1A-5_GEMINI_3_5_FLASH_LITE_ISOLATED_SUCCESSOR',
               runtime_base:'b5ee123cecdbe220a8db7957a64f881738c07b24',
-              model:'gemini-3.1-flash-lite',
+              model:'gemini-3.5-flash-lite',
               provider_schema:'compact_semantic_candidate_v1',
               frozen_corpus_sha256:'d9d0e964d28b0fbbc70f4767a75283a6056524fed945dd39710a11693c0987c',
               frozen_rubric_sha256:'9cd31fe783d49326e16988dbd3c63d148f98d9343c0b2991bb9209011ab71ad4',
@@ -366,7 +366,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m1a5-gemini-3-6-isolated-${{ github.sha }}
+          name: m1a5-gemini-3-5-flash-lite-isolated-${{ github.sha }}
           path: m1a5_gemini/run-artifacts/
           if-no-files-found: warn
           retention-days: 14
