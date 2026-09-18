@@ -79,14 +79,33 @@ jobs:
               p=root/(item['id']+'.request.json')
               json.dump({"request_id":"semantic-quality-"+item['id'],"birth":item["birth"]},open(p,'w'),ensure_ascii=False)
           PY
+          overall=0
           for file in /tmp/gm-semantic/SQ-*.request.json; do
             id="$(basename "$file" .request.json)"
-            code="$(curl -sS -o "/tmp/gm-semantic/$id.response.json" -w '%{http_code}' -X POST "$RAILWAY_URL/natal/deliver" \
-              -H 'content-type: application/json' -H "x-gm-secret: $GM_API_SECRET" \
-              --data-binary "@$file")"
-            echo "$id HTTP=$code"
-            test "$code" = "200"
+            ok=0
+            for attempt in 1 2 3; do
+              code="$(curl -sS -o "/tmp/gm-semantic/$id.response.json" -w '%{http_code}' -X POST "$RAILWAY_URL/natal/deliver" \
+                -H 'content-type: application/json' -H "x-gm-secret: $GM_API_SECRET" \
+                --data-binary "@$file")"
+              echo "$id attempt=$attempt HTTP=$code"
+              if [ "$code" = "200" ]; then
+                ok=1
+                break
+              fi
+              python3 - "$id" <<'PY'
+          import json,sys
+          p='/tmp/gm-semantic/'+sys.argv[1]+'.response.json'
+          try:
+              x=json.load(open(p))
+              print('ERROR_BODY='+json.dumps(x,ensure_ascii=False,sort_keys=True))
+          except Exception:
+              print('ERROR_BODY_UNREADABLE')
+          PY
+              sleep 2
+            done
+            if [ "$ok" != "1" ]; then overall=1; fi
           done
+          exit "$overall"
 
       - name: Build deterministic evidence summaries
         shell: bash
