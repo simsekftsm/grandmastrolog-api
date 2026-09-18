@@ -1,0 +1,63 @@
+name: M1A-5 OpenAI 429 Root Diagnostic
+
+on:
+  push:
+    branches:
+      - m1a5-root-repair-runtime-4608
+    paths:
+      - '.github/workflows/m1a5-openai-429-root.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Diagnose one minimal Luna request
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${OPENAI_API_KEY:-}" || { echo 'OPENAI_API_KEY_GATE=BLOCKED'; exit 2; }
+          node <<'NODE'
+          (async()=>{
+            const res=await fetch('https://api.openai.com/v1/responses',{
+              method:'POST',
+              headers:{
+                authorization:'Bearer '+process.env.OPENAI_API_KEY,
+                'content-type':'application/json'
+              },
+              body:JSON.stringify({
+                model:'gpt-5.6-luna',
+                input:'Reply only with OK.',
+                max_output_tokens:16,
+                reasoning:{effort:'none'},
+                store:false
+              }),
+              signal:AbortSignal.timeout(30000)
+            });
+            let json={}; try{json=await res.json()}catch{}
+            const err=json?.error||{};
+            console.log('OPENAI_429_ROOT '+JSON.stringify({
+              status:res.status,
+              error_type:err?.type??null,
+              error_code:err?.code??null,
+              error_message:typeof err?.message==='string'?err.message.slice(0,1000):null,
+              request_id:res.headers.get('x-request-id'),
+              retry_after:res.headers.get('retry-after'),
+              limit_requests:res.headers.get('x-ratelimit-limit-requests'),
+              remaining_requests:res.headers.get('x-ratelimit-remaining-requests'),
+              reset_requests:res.headers.get('x-ratelimit-reset-requests'),
+              limit_tokens:res.headers.get('x-ratelimit-limit-tokens'),
+              remaining_tokens:res.headers.get('x-ratelimit-remaining-tokens'),
+              reset_tokens:res.headers.get('x-ratelimit-reset-tokens'),
+              response_status:json?.status??null,
+              model:json?.model??null
+            }));
+            if(!res.ok) process.exit(1);
+          })().catch(e=>{console.error('OPENAI_429_ROOT_ERROR '+String(e?.message||e));process.exit(1)});
+          NODE
