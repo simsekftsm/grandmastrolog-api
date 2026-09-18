@@ -1,0 +1,155 @@
+name: M1A-5 Output Token Bound Diagnostic
+
+on:
+  push:
+    branches:
+      - m1a5-root-repair-successor
+    paths:
+      - '.github/workflows/m1a5-output-token-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  output-token-bound:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ROOT_REPAIR_CANDIDATE: ce60c472023faa3e0822f84e13ba556f93a4b171
+      FROZEN_SOURCE_HEAD: fb1f0498cd0a7c49580cfde574a407e00e2bc20b
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+    steps:
+      - name: Checkout successor branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify diagnostic scope and source ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$ROOT_REPAIR_CANDIDATE" HEAD
+          test -n "${GROQ_API_KEY:-}" || { echo 'BLOCKED:GROQ_API_KEY_MISSING'; exit 2; }
+          git fetch --no-tags --depth=1 origin "$FROZEN_SOURCE_HEAD"
+          git show "$FROZEN_SOURCE_HEAD:m1a5_acceptance/corpus.normal-natal.v1.json" > /tmp/corpus.json
+          test "$(sha256sum /tmp/corpus.json | awk '{print $1}')" = "d9d0e964d28b0fbbc70f4767a75283a6056524fed945dd39710a11693c0987c"
+
+      - name: Install evidence-engine dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Find lowest bounded max_output_tokens for blocked cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('node:fs');
+          const {buildNatalBindingInput}=require('./gm_integration/natal-evidence.js');
+          const {groqGenerationFormat,groqModelInstructions}=require('./delivery_runtime/lib/groq-binding.js');
+          const {canonicalizeModelPayload}=require('./delivery_runtime/lib/model-binding.js');
+          const {validateBindingInput,makeValidatedEnvelope}=require('./delivery_runtime/lib/natal-contract.js');
+
+          const corpus=JSON.parse(fs.readFileSync('/tmp/corpus.json','utf8'));
+          const byId=Object.fromEntries(corpus.cases.map(x=>[x.case_id,x]));
+          const caps=[2560,3072,3584,4096,4608,5120];
+          const GAP_MS=70000;
+          let lastStart=0;
+
+          function outputText(json){
+            if(typeof json?.output_text==='string' && json.output_text.trim()) return json.output_text;
+            for(const item of json?.output||[]){
+              for(const content of item?.content||[]){
+                if(content?.type==='output_text' && typeof content.text==='string') return content.text;
+              }
+            }
+            return '';
+          }
+
+          async function gap(){
+            const wait=Math.max(0,GAP_MS-(Date.now()-lastStart));
+            if(wait>0){
+              console.log('BOUND_DIAG_WAIT_MS='+wait);
+              await new Promise(r=>setTimeout(r,wait));
+            }
+            lastStart=Date.now();
+          }
+
+          async function call(caseId, cap){
+            await gap();
+            const t=byId[caseId];
+            const built=buildNatalBindingInput({request_id:t.request_id,birth:t.birth});
+            const bi=built.binding_input;
+            const {evidenceMap,availability}=validateBindingInput(bi);
+            const res=await fetch('https://api.groq.com/openai/v1/responses',{
+              method:'POST',
+              headers:{
+                authorization:'Bearer '+process.env.GROQ_API_KEY,
+                'content-type':'application/json'
+              },
+              body:JSON.stringify({
+                model:'openai/gpt-oss-120b',
+                instructions:groqModelInstructions(availability,bi.verified_evidence),
+                input:bi.semantic_input,
+                max_output_tokens:cap,
+                text:{format:groqGenerationFormat(bi.verified_evidence,availability)}
+              }),
+              signal:AbortSignal.timeout(70000)
+            });
+            let json={}; try{json=await res.json()}catch{}
+            let validated=false, parseOk=false;
+            if(res.ok){
+              try{
+                const raw=JSON.parse(outputText(json));
+                parseOk=true;
+                const canonical=canonicalizeModelPayload(raw,evidenceMap,availability);
+                makeValidatedEnvelope(canonical,evidenceMap,availability);
+                validated=true;
+              }catch{}
+            }
+            const err=json?.error||{};
+            const safe={
+              case_id:caseId,
+              max_output_tokens:cap,
+              http_status:res.status,
+              response_status:json?.status??null,
+              parse_ok:parseOk,
+              canonical_validation_ok:validated,
+              usage_input_tokens:json?.usage?.input_tokens??null,
+              usage_output_tokens:json?.usage?.output_tokens??null,
+              usage_reasoning_tokens:json?.usage?.output_tokens_details?.reasoning_tokens??json?.usage?.input_tokens_details?.reasoning_tokens??null,
+              error_code:err?.code??null,
+              error_type:err?.type??null,
+              error_message:typeof err?.message==='string'?err.message.slice(0,900):null,
+              failed_generation_present:Boolean(err?.failed_generation),
+              retry_after:res.headers.get('retry-after'),
+              rate_limit_remaining_tokens:res.headers.get('x-ratelimit-remaining-tokens'),
+              rate_limit_reset_tokens:res.headers.get('x-ratelimit-reset-tokens')
+            };
+            console.log('OUTPUT_BOUND_DIAG '+JSON.stringify(safe));
+            return validated;
+          }
+
+          (async()=>{
+            let chosen=null;
+            for(const cap of caps){
+              if(await call('NATAL_SYN_02',cap)){ chosen=cap; break; }
+            }
+            if(!chosen){
+              console.log('OUTPUT_BOUND_RESULT '+JSON.stringify({verdict:'BLOCKED',reason:'NO_BOUNDED_CAP_PASSED',caps}));
+              process.exit(2);
+            }
+            const syn01=await call('NATAL_SYN_01',chosen);
+            console.log('OUTPUT_BOUND_RESULT '+JSON.stringify({
+              verdict:syn01?'PASS':'FAIL',
+              chosen_max_output_tokens:chosen,
+              lower_caps_tested:caps.filter(x=>x<chosen),
+              syn02_pass:true,
+              syn01_pass:syn01
+            }));
+            if(!syn01) process.exit(1);
+          })().catch(e=>{
+            console.error('OUTPUT_BOUND_DIAG_ERROR '+String(e?.name||'')+':'+String(e?.message||e));
+            process.exit(3);
+          });
+          NODE
