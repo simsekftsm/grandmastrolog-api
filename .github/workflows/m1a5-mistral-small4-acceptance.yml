@@ -1,0 +1,369 @@
+name: M1A-5 Mistral Small 4 Isolated Acceptance
+
+on:
+  push:
+    branches:
+      - m1a5-root-repair-runtime-4608
+    paths:
+      - '.github/workflows/m1a5-mistral-small4-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  accept:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      RUNTIME_SHA: b5ee123cecdbe220a8db7957a64f881738c07b24
+      FROZEN_SHA: fb1f0498cd0a7c49580cfde574a407e00e2bc20b
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+
+    steps:
+      - name: Checkout exact successor state
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify frozen acceptance identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${MISTRAL_API_KEY:-}" || { echo 'BLOCKED:MISTRAL_API_KEY_MISSING'; exit 2; }
+          git cat-file -e "$RUNTIME_SHA^{commit}"
+          git diff --exit-code "$RUNTIME_SHA" HEAD -- delivery_runtime gm_integration integration-server.js openapi.yaml Dockerfile package.json package-lock.json
+          git fetch --no-tags --depth=1 origin "$FROZEN_SHA"
+          for f in             m1a5_acceptance/corpus.normal-natal.v1.json             m1a5_acceptance/rubric.semantic-quality.v1.json             m1a5_acceptance/frozen-manifest.json             m1a5_acceptance/oracle-core.mjs
+          do
+            test "$(git rev-parse "HEAD:$f")" = "$(git rev-parse "FETCH_HEAD:$f")" || {
+              echo "FAIL:FROZEN_ARTIFACT_DRIFT:$f"
+              exit 1
+            }
+          done
+          python3 - <<'PY'
+          import hashlib,json
+          m=json.load(open('m1a5_acceptance/frozen-manifest.json',encoding='utf-8'))
+          for p,k in [
+            ('m1a5_acceptance/corpus.normal-natal.v1.json','corpus_sha256'),
+            ('m1a5_acceptance/rubric.semantic-quality.v1.json','rubric_sha256')
+          ]:
+              assert hashlib.sha256(open(p,'rb').read()).hexdigest()==m[k]
+          print('MISTRAL_FROZEN_IDENTITY=PASS')
+          PY
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Run Mistral Small 4 frozen acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p m1a5_mistral/run-artifacts
+          node <<'NODE'
+          const fs=require('node:fs');
+          const {buildNatalBindingInput}=require('./gm_integration/natal-evidence.js');
+          const {groqGenerationFormat,groqModelInstructions}=require('./delivery_runtime/lib/groq-binding.js');
+          const {canonicalizeModelPayload}=require('./delivery_runtime/lib/model-binding.js');
+          const {validateBindingInput,makeValidatedEnvelope}=require('./delivery_runtime/lib/natal-contract.js');
+          const {renderCanonicalNatal}=require('./delivery_runtime/lib/natal-renderer.js');
+
+          const MODEL='mistral-small-2603';
+          const corpus=JSON.parse(fs.readFileSync('m1a5_acceptance/corpus.normal-natal.v1.json','utf8'));
+          const GAP_MS=15000;
+          let lastStart=0;
+
+          async function waitGap(){
+            const wait=Math.max(0,GAP_MS-(Date.now()-lastStart));
+            if(wait>0) await new Promise(r=>setTimeout(r,wait));
+            lastStart=Date.now();
+          }
+
+          function compactSchema(bi){
+            const full=groqGenerationFormat(bi.verified_evidence,bi.availability).schema;
+            const specialCount=full.properties.special_contributions.minItems||0;
+            const specialEnum=full.$defs.specialContribution.properties.contribution_id.enum||[];
+            const refs=(min,max)=>({
+              type:'array',minItems:min,maxItems:max,items:{type:'string'}
+            });
+            const paragraphs=(max)=>({
+              type:'array',minItems:1,maxItems:max,items:{type:'string'}
+            });
+            const section={
+              type:'object',
+              additionalProperties:false,
+              required:['section_id','body_paragraphs','hat_evidence_refs'],
+              properties:{
+                section_id:{
+                  type:'string',
+                  enum:['profilin','haritanin_ozu','element_dengen','sinerji','senin_yolun','para_kariyer','iliskiler','aile','karmalar']
+                },
+                body_paragraphs:paragraphs(6),
+                hat_evidence_refs:refs(1,12)
+              }
+            };
+            const special={
+              type:'object',
+              additionalProperties:false,
+              required:['contribution_id','body_paragraphs','evidence_refs'],
+              properties:{
+                contribution_id:specialEnum.length?{type:'string',enum:specialEnum}:{type:'string'},
+                body_paragraphs:paragraphs(4),
+                evidence_refs:refs(1,12)
+              }
+            };
+            return {
+              type:'object',
+              additionalProperties:false,
+              required:['prelude','pre_seal_sections','personal_seal','main_life_sections','special_contributions'],
+              properties:{
+                prelude:{
+                  type:'object',
+                  additionalProperties:false,
+                  required:['body_paragraphs','hat_evidence_refs'],
+                  properties:{
+                    body_paragraphs:paragraphs(4),
+                    hat_evidence_refs:refs(1,12)
+                  }
+                },
+                pre_seal_sections:{type:'array',minItems:5,maxItems:5,items:section},
+                personal_seal:{
+                  type:'object',
+                  additionalProperties:false,
+                  required:['motto'],
+                  properties:{motto:{type:'string'}}
+                },
+                main_life_sections:{type:'array',minItems:4,maxItems:4,items:section},
+                special_contributions:{
+                  type:'array',
+                  minItems:specialCount,
+                  maxItems:specialCount,
+                  items:special
+                }
+              }
+            };
+          }
+
+          function contentText(message){
+            if(typeof message?.content==='string') return message.content;
+            if(Array.isArray(message?.content)){
+              return message.content.map(x=>typeof x==='string'?x:(x?.text||'')).join('');
+            }
+            return '';
+          }
+
+          async function mistralCall(t,bi){
+            await waitGap();
+            const responseFormat={
+              type:'json_schema',
+              json_schema:{
+                name:'gm_natal_semantic_candidate_v1',
+                schema_definition:compactSchema(bi),
+                strict:true
+              }
+            };
+            const res=await fetch('https://api.mistral.ai/v1/chat/completions',{
+              method:'POST',
+              headers:{
+                authorization:'Bearer '+process.env.MISTRAL_API_KEY,
+                'content-type':'application/json'
+              },
+              body:JSON.stringify({
+                model:MODEL,
+                messages:[
+                  {
+                    role:'system',
+                    content:groqModelInstructions(bi.availability,bi.verified_evidence)
+                  },
+                  {
+                    role:'user',
+                    content:'SEMANTIC_INPUT_JSON:\n'+JSON.stringify(bi.semantic_input)
+                  }
+                ],
+                response_format:responseFormat,
+                max_tokens:8192,
+                temperature:0,
+                random_seed:0,
+                stream:false
+              }),
+              signal:AbortSignal.timeout(90000)
+            });
+            let json={}; try{json=await res.json()}catch{}
+            if(!res.ok){
+              return {
+                verdict:'BLOCKED',
+                reason:'MISTRAL_HTTP_'+res.status,
+                diagnostic:{
+                  status:res.status,
+                  error_type:json?.type??json?.error?.type??null,
+                  error_code:json?.code??json?.error?.code??null,
+                  error_message:typeof (json?.message||json?.error?.message)==='string'
+                    ? String(json?.message||json?.error?.message).slice(0,1000)
+                    : null
+                }
+              };
+            }
+            const finish=json?.choices?.[0]?.finish_reason??null;
+            if(finish && finish!=='stop'){
+              return {verdict:'BLOCKED',reason:'MISTRAL_FINISH_'+String(finish)};
+            }
+            const text=contentText(json?.choices?.[0]?.message);
+            if(!text.trim()) return {verdict:'UNKNOWN',reason:'MISTRAL_OUTPUT_MISSING'};
+            try{
+              const parsed=JSON.parse(text);
+              const {evidenceMap,availability}=validateBindingInput(bi);
+              const canonical=canonicalizeModelPayload(parsed,evidenceMap,availability);
+              makeValidatedEnvelope(canonical,evidenceMap,availability);
+              return {verdict:'PASS',canonical,usage:json?.usage||null};
+            }catch(error){
+              return {
+                verdict:'FAIL',
+                reason:'MISTRAL_DOWNSTREAM_VALIDATION',
+                error_code:String(error?.code||error?.message||'UNKNOWN')
+              };
+            }
+          }
+
+          (async()=>{
+            const {evaluate,anchorScore,producer,aggregate}=await import('./m1a5_acceptance/oracle-core.mjs');
+            const frozenRubric=JSON.parse(fs.readFileSync('m1a5_acceptance/rubric.semantic-quality.v1.json','utf8'));
+            const delta=JSON.parse(fs.readFileSync('m1a5_successor/calibration-delta.v1.json','utf8'));
+            const rubric=JSON.parse(JSON.stringify(frozenRubric));
+            const old=delta.superseded_markers;
+            const markers=rubric.canonical_language.required_markers_exact_once_in_order;
+            if(delta.mutation_scope!=='canonical_language.required_markers_exact_once_in_order') throw new Error('DELTA_SCOPE_INVALID');
+            if(delta.semantic_thresholds_unchanged!==true) throw new Error('DELTA_THRESHOLDS_UNLOCKED');
+            if(!old.every(x=>markers.filter(y=>y===x).length===1)) throw new Error('DELTA_MARKER_IDENTITY');
+            const at=Math.min(...old.map(x=>markers.indexOf(x)));
+            const next=markers.filter(x=>!old.includes(x));
+            next.splice(at,0,delta.authorized_marker);
+            rubric.canonical_language.required_markers_exact_once_in_order=next;
+
+            const cases=[];
+            for(const t of corpus.cases){
+              const bi=buildNatalBindingInput({request_id:t.request_id,birth:t.birth}).binding_input;
+              const live=await mistralCall(t,bi);
+              if(live.verdict!=='PASS'){
+                const item={case_id:t.case_id,verdict:live.verdict,reason:live.reason,diagnostic:live.diagnostic||null,error_code:live.error_code||null};
+                cases.push(item);
+                console.log('MISTRAL_CASE '+JSON.stringify(item));
+                continue;
+              }
+              const render=renderCanonicalNatal(bi,live.canonical);
+              const e=evaluate(render.canonical_markdown,bi.verified_evidence,rubric);
+              const verdict=aggregate(Object.values(e.dimensions).map(x=>x.verdict));
+              const item={
+                case_id:t.case_id,
+                verdict,
+                dimensions:e.dimensions,
+                producer_failures:e.producer_failures,
+                output_sha256:render.canonical_markdown_sha256,
+                usage:live.usage,
+                _body:e.combinedBody,
+                _ev:bi.verified_evidence
+              };
+              fs.writeFileSync('m1a5_mistral/run-artifacts/'+t.case_id+'.json',JSON.stringify({
+                case_id:t.case_id,
+                model:MODEL,
+                output_sha256:render.canonical_markdown_sha256,
+                canonical_markdown:render.canonical_markdown,
+                dimensions:e.dimensions,
+                producer_failures:e.producer_failures,
+                usage:live.usage
+              },null,2)+'\n');
+              cases.push(item);
+              console.log('MISTRAL_CASE '+JSON.stringify({
+                case_id:t.case_id,
+                verdict,
+                dimensions:Object.fromEntries(Object.entries(e.dimensions).map(([k,v])=>[k,v.verdict]))
+              }));
+            }
+
+            const complete=cases.filter(x=>x._body&&x._ev);
+            const counterexample=[];
+            if(complete.length!==corpus.cases.length){
+              counterexample.push({verdict:'UNKNOWN',reason:'COUNTEREXAMPLE_REQUIRES_ALL_CORPUS_OUTPUTS'});
+            }else{
+              for(const own of complete){
+                const ownScore=anchorScore(own._body,own._ev,rubric.specificity.anchor_subjects).score;
+                let bestOther=0;
+                const comparisons=[];
+                for(const other of complete){
+                  if(other.case_id===own.case_id) continue;
+                  const score=anchorScore(own._body,other._ev,rubric.specificity.anchor_subjects).score;
+                  bestOther=Math.max(bestOther,score);
+                  comparisons.push({against_case_id:other.case_id,score});
+                }
+                const margin=ownScore-bestOther;
+                const pass=ownScore>=rubric.counterexample_specificity.minimum_own_anchor_score &&
+                  margin>=rubric.counterexample_specificity.minimum_margin_over_best_other_case;
+                counterexample.push({
+                  case_id:own.case_id,
+                  verdict:pass?'PASS':'FAIL',
+                  own_anchor_score:ownScore,
+                  best_other_case_score:bestOther,
+                  margin,
+                  comparisons,
+                  producer:pass?null:producer('counterexample_specificity')
+                });
+              }
+            }
+
+            for(const x of cases){delete x._body;delete x._ev}
+            const overall=aggregate([...cases.map(x=>x.verdict),...counterexample.map(x=>x.verdict)]);
+            const result={
+              overall,
+              acceptance_id:'M1A-5_MISTRAL_SMALL_4_ISOLATED_SUCCESSOR',
+              runtime_base:'b5ee123cecdbe220a8db7957a64f881738c07b24',
+              provider:'mistral',
+              model:MODEL,
+              provider_schema:'compact_semantic_candidate_v1',
+              frozen_corpus_sha256:'d9d0e964d28b0fbbc70f4767a75283a6056524fed945dd39710a11693c0987c',
+              frozen_rubric_sha256:'9cd31fe783d49326e16988dbd3c63d148f98d9343c0b2991bb9209011ab71ad4',
+              successor_delta_id:delta.successor_delta_id,
+              cases,
+              counterexample_specificity:counterexample
+            };
+            fs.writeFileSync('m1a5_mistral/run-artifacts/results.json',JSON.stringify(result,null,2)+'\n');
+            console.log('MISTRAL_M1A5_OVERALL='+overall);
+            for(const z of counterexample) console.log('MISTRAL_COUNTEREXAMPLE '+JSON.stringify(z));
+            if(overall!=='PASS') process.exitCode=1;
+          })().catch(e=>{
+            console.error('MISTRAL_ACCEPTANCE_ERROR '+String(e?.name||'')+':'+String(e?.message||e));
+            process.exit(1);
+          });
+          NODE
+
+      - name: Upload Mistral acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1a5-mistral-small4-${{ github.sha }}
+          path: m1a5_mistral/run-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Mistral acceptance gate
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f m1a5_mistral/run-artifacts/results.json || {
+            echo 'BLOCKED:MISTRAL_RESULT_MISSING'
+            exit 2
+          }
+          python3 - <<'PY'
+          import json
+          x=json.load(open('m1a5_mistral/run-artifacts/results.json',encoding='utf-8'))
+          print('MISTRAL_M1A5_ACCEPTANCE='+str(x.get('overall')))
+          for c in x.get('cases',[]):
+              print('CASE',c.get('case_id'),c.get('verdict'),c.get('reason',''),c.get('error_code',''))
+          for z in x.get('counterexample_specificity',[]):
+              print('COUNTEREXAMPLE',json.dumps(z,ensure_ascii=False,sort_keys=True))
+          v=x.get('overall')
+          if v=='PASS': raise SystemExit(0)
+          if v=='FAIL': raise SystemExit(1)
+          if v=='BLOCKED': raise SystemExit(2)
+          raise SystemExit(3)
+          PY
