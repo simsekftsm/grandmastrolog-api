@@ -38,7 +38,7 @@ function trustedReq(body) {
 
 function primeEnv() {
   process.env.GM_API_SECRET = 'synthetic-test-secret';
-  process.env.OPENAI_API_KEY = 'synthetic-openai-key';
+  process.env.GEMINI_API_KEY = 'synthetic-gemini-key';
   delete process.env.GM_MODEL;
   delete process.env.GM_MODEL_PROVIDER;
   process.env.GM_FINAL_DELIVERY_AUTHORIZED = 'true';
@@ -54,7 +54,7 @@ async function invoke(modelPayloadFactory) {
   globalThis.fetch = async () => ({
     ok: true,
     status: 200,
-    json: async () => ({ status: 'completed', output_text: JSON.stringify(modelPayloadFactory(av)) })
+    json: async () => ({ status: 'completed', steps: [{ type:'model_output', content:[{ type:'text', text:JSON.stringify(modelPayloadFactory(av)) }] }] })
   });
   const res = makeRes();
   await handler(trustedReq(body), res);
@@ -144,7 +144,7 @@ test('unparseable raw model output never leaks', async () => {
   globalThis.fetch = async () => ({
     ok: true,
     status: 200,
-    json: async () => ({ status: 'completed', output_text: 'RAW-SECRET-NOT-JSON' })
+    json: async () => ({ status: 'completed', steps: [{ type:'model_output', content:[{ type:'text', text:'RAW-SECRET-NOT-JSON' }] }] })
   });
   const body = { binding_input: bindingInput() };
   const res = makeRes();
