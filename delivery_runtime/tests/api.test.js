@@ -96,7 +96,11 @@ test('model-natal upstream failure fails closed without exposing raw provider ou
   const oldFetch = global.fetch;
   process.env.GROQ_API_KEY = 'test-secret';
   delete process.env.GROQ_MODEL;
-  global.fetch = async () => ({ ok: false, status: 503 });
+  let outboundBody;
+  global.fetch = async (_url, init) => {
+    outboundBody = JSON.parse(init.body);
+    return { ok: false, status: 503 };
+  };
   try {
     const body = bindingInput();
     const res = fakeResponse();
@@ -104,6 +108,7 @@ test('model-natal upstream failure fails closed without exposing raw provider ou
     assert.equal(res.statusCode, 502);
     assert.deepEqual(res.body, { ok: false, code: 'MODEL_BINDING_UPSTREAM_FAIL', upstream_provider: 'groq', upstream_status: 503 });
     assert.equal(JSON.stringify(res.body).includes('raw'), false);
+    assert.equal(outboundBody.max_output_tokens, 4608);
   } finally {
     global.fetch = oldFetch;
     if (oldGroq !== undefined) process.env.GROQ_API_KEY = oldGroq; else delete process.env.GROQ_API_KEY;
