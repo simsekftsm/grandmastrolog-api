@@ -147,15 +147,65 @@ jobs:
             return canonical_validation_ok;
           }
 
+          async function smoke(label, body){
+            const res=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{
+              method:'POST',
+              headers:{
+                'x-goog-api-key':process.env.GEMINI_API_KEY,
+                'content-type':'application/json'
+              },
+              body:JSON.stringify(body),
+              signal:AbortSignal.timeout(90000)
+            });
+            let json={}; try{json=await res.json()}catch{}
+            console.log('GEMINI_SMOKE '+JSON.stringify({
+              label,
+              status:res.status,
+              response_status:json?.status??null,
+              error_code:json?.error?.code??null,
+              error_status:json?.error?.status??null,
+              error_message:typeof json?.error?.message==='string'?json.error.message.slice(0,1000):null,
+              has_output_text:typeof json?.output_text==='string' && json.output_text.length>0
+            }));
+            return {res,json};
+          }
+
           (async()=>{
-            for(const t of corpus.cases.slice(0,1)){
-              const built=buildNatalBindingInput({request_id:t.request_id,birth:t.birth});
-              const bi=built.binding_input;
-              await waitGap();
-              await geminiCall(t,bi);
-            }
+            await smoke('BASIC',{
+              model:'gemini-3.6-flash',
+              input:'Reply with the word OK.',
+              store:false
+            });
+            await smoke('SIMPLE_JSON',{
+              model:'gemini-3.6-flash',
+              input:'Return an object whose ok field is the string yes.',
+              response_format:{
+                type:'text',
+                mime_type:'application/json',
+                schema:{
+                  type:'object',
+                  additionalProperties:false,
+                  required:['ok'],
+                  properties:{ok:{type:'string',enum:['yes']}}
+                }
+              },
+              store:false
+            });
+            const t=corpus.cases[0];
+            const bi=buildNatalBindingInput({request_id:t.request_id,birth:t.birth}).binding_input;
+            await smoke('FULL_GM_SCHEMA',{
+              model:'gemini-3.6-flash',
+              input:'SEMANTIC_INPUT_JSON:\n'+JSON.stringify(bi.semantic_input),
+              system_instruction:groqModelInstructions(bi.availability,bi.verified_evidence),
+              response_format:{
+                type:'text',
+                mime_type:'application/json',
+                schema:sanitizeGeminiSchema(groqGenerationFormat(bi.verified_evidence,bi.availability).schema)
+              },
+              store:false
+            });
           })().catch(e=>{
-            console.error('GEMINI_ISOLATED_ERROR '+String(e?.name||'')+':'+String(e?.message||e));
+            console.error('GEMINI_SMOKE_ERROR '+String(e?.name||'')+':'+String(e?.message||e));
             process.exit(1);
           });
           NODE
