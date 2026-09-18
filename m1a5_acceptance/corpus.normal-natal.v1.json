@@ -1,0 +1,46 @@
+{
+  "corpus_id": "m1a5-normal-natal-synthetic-v1",
+  "frozen_before_first_run": true,
+  "scope": "normal_initial_natal_only",
+  "cases": [
+    {
+      "case_id": "NATAL_SYN_01",
+      "request_id": "m1a5-syn-01",
+      "birth": {
+        "date": "1964-02-03",
+        "time": "09:15:00",
+        "timezone": "Europe/Istanbul",
+        "latitude": 41.0082,
+        "longitude": 28.9784,
+        "district": "SyntheticDistrictA",
+        "city": "SyntheticIstanbul"
+      }
+    },
+    {
+      "case_id": "NATAL_SYN_02",
+      "request_id": "m1a5-syn-02",
+      "birth": {
+        "date": "1990-08-21",
+        "time": "17:40:00",
+        "timezone": "Europe/Istanbul",
+        "latitude": 39.9208,
+        "longitude": 32.8541,
+        "district": "SyntheticDistrictB",
+        "city": "SyntheticAnkara"
+      }
+    },
+    {
+      "case_id": "NATAL_SYN_03",
+      "request_id": "m1a5-syn-03",
+      "birth": {
+        "date": "2003-12-11",
+        "time": "03:20:00",
+        "timezone": "Europe/Istanbul",
+        "latitude": 38.4237,
+        "longitude": 27.1428,
+        "district": "SyntheticDistrictC",
+        "city": "SyntheticIzmir"
+      }
+    }
+  ]
+}
