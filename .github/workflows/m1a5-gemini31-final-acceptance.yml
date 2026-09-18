@@ -250,3 +250,4 @@ jobs:
           raise SystemExit(3)
           PY
 # candidate-refresh: gemini31-normalizer-final
+# candidate-refresh: regression-assertions-fixed
