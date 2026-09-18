@@ -1,0 +1,30 @@
+name: M1A-5 Mistral Small 4 Key Gate
+
+on:
+  push:
+    branches:
+      - m1a5-root-repair-runtime-4608
+    paths:
+      - '.github/workflows/m1a5-mistral-key-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+    steps:
+      - name: Verify Mistral key
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MISTRAL_API_KEY:-}" ]; then
+            echo "MISTRAL_KEY_GATE=PASS"
+          else
+            echo "MISTRAL_KEY_GATE=BLOCKED"
+            exit 2
+          fi
