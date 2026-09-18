@@ -147,6 +147,75 @@ jobs:
             return canonical_validation_ok;
           }
 
+          function compactGeminiSchema(bi){
+            const evidenceIds=[...new Set((bi.verified_evidence||[]).map(x=>x.evidence_id).filter(Boolean))];
+            const full=groqGenerationFormat(bi.verified_evidence,bi.availability).schema;
+            const specialCount=full.properties.special_contributions.minItems||0;
+            const specialEnum=full.$defs.specialContribution.properties.contribution_id.enum||[];
+            const refs=(min,max)=>({
+              type:'array',
+              minItems:min,
+              maxItems:max,
+              items:{type:'string',enum:evidenceIds}
+            });
+            const paragraphs=(max)=>({
+              type:'array',
+              minItems:1,
+              maxItems:max,
+              items:{type:'string'}
+            });
+            const section={
+              type:'object',
+              additionalProperties:false,
+              required:['section_id','body_paragraphs','hat_evidence_refs'],
+              properties:{
+                section_id:{type:'string',enum:['profilin','haritanin_ozu','element_dengen','sinerji','senin_yolun','para_kariyer','iliskiler','aile','karmalar']},
+                body_paragraphs:paragraphs(6),
+                hat_evidence_refs:refs(1,12)
+              }
+            };
+            const special={
+              type:'object',
+              additionalProperties:false,
+              required:['contribution_id','body_paragraphs','evidence_refs'],
+              properties:{
+                contribution_id:{type:'string',enum:specialEnum},
+                body_paragraphs:paragraphs(4),
+                evidence_refs:refs(1,12)
+              }
+            };
+            return {
+              type:'object',
+              additionalProperties:false,
+              required:['prelude','pre_seal_sections','personal_seal','main_life_sections','special_contributions'],
+              properties:{
+                prelude:{
+                  type:'object',
+                  additionalProperties:false,
+                  required:['body_paragraphs','hat_evidence_refs'],
+                  properties:{
+                    body_paragraphs:paragraphs(4),
+                    hat_evidence_refs:refs(1,12)
+                  }
+                },
+                pre_seal_sections:{type:'array',minItems:5,maxItems:5,items:section},
+                personal_seal:{
+                  type:'object',
+                  additionalProperties:false,
+                  required:['motto'],
+                  properties:{motto:{type:'string'}}
+                },
+                main_life_sections:{type:'array',minItems:4,maxItems:4,items:section},
+                special_contributions:{
+                  type:'array',
+                  minItems:specialCount,
+                  maxItems:specialCount,
+                  items:special
+                }
+              }
+            };
+          }
+
           async function smoke(label, body){
             const res=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{
               method:'POST',
@@ -193,15 +262,16 @@ jobs:
             });
             const t=corpus.cases[0];
             const bi=buildNatalBindingInput({request_id:t.request_id,birth:t.birth}).binding_input;
-            await smoke('FULL_GM_SCHEMA',{
+            await smoke('COMPACT_GM_SCHEMA',{
               model:'gemini-3.6-flash',
               input:'SEMANTIC_INPUT_JSON:\n'+JSON.stringify(bi.semantic_input),
               system_instruction:groqModelInstructions(bi.availability,bi.verified_evidence),
               response_format:{
                 type:'text',
                 mime_type:'application/json',
-                schema:sanitizeGeminiSchema(groqGenerationFormat(bi.verified_evidence,bi.availability).schema)
+                schema:compactGeminiSchema(bi)
               },
+              generation_config:{max_output_tokens:8192,seed:0},
               store:false
             });
           })().catch(e=>{
