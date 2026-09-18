@@ -74,11 +74,40 @@ function verifySourceManifest(provenance, readFile) {
   return provenance;
 }
 
+function readBundledPhysicalSource() {
+  return Object.freeze({
+    'delivery_runtime/api/delivery.js': fs.readFileSync(path.resolve(__dirname, '../api/delivery.js')),
+    'delivery_runtime/api/health.js': fs.readFileSync(path.resolve(__dirname, '../api/health.js')),
+    'delivery_runtime/api/model-natal.js': fs.readFileSync(path.resolve(__dirname, '../api/model-natal.js')),
+    'delivery_runtime/api/render-natal.js': fs.readFileSync(path.resolve(__dirname, '../api/render-natal.js')),
+    'delivery_runtime/api/validate-natal.js': fs.readFileSync(path.resolve(__dirname, '../api/validate-natal.js')),
+    'delivery_runtime/contracts/gm-natal-semantic-v1.schema.json': fs.readFileSync(path.resolve(__dirname, '../contracts/gm-natal-semantic-v1.schema.json')),
+    'delivery_runtime/lib/delivery-validator.js': fs.readFileSync(__filename),
+    'delivery_runtime/lib/element-visual.js': fs.readFileSync(path.resolve(__dirname, './element-visual.js')),
+    'delivery_runtime/lib/foundation.js': fs.readFileSync(path.resolve(__dirname, './foundation.js')),
+    'delivery_runtime/lib/groq-binding.js': fs.readFileSync(path.resolve(__dirname, './groq-binding.js')),
+    'delivery_runtime/lib/model-binding.js': fs.readFileSync(path.resolve(__dirname, './model-binding.js')),
+    'delivery_runtime/lib/natal-contract.js': fs.readFileSync(path.resolve(__dirname, './natal-contract.js')),
+    'delivery_runtime/lib/natal-renderer.js': fs.readFileSync(path.resolve(__dirname, './natal-renderer.js')),
+    'delivery_runtime/lib/schema-runtime.js': fs.readFileSync(path.resolve(__dirname, './schema-runtime.js')),
+    'delivery_runtime/lib/trust-boundary.js': fs.readFileSync(path.resolve(__dirname, './trust-boundary.js')),
+    'delivery_runtime/package.json': fs.readFileSync(path.resolve(__dirname, '../package.json')),
+    'delivery_runtime/public/elements/ates.png': fs.readFileSync(path.resolve(__dirname, '../public/elements/ates.png')),
+    'delivery_runtime/public/elements/hava.png': fs.readFileSync(path.resolve(__dirname, '../public/elements/hava.png')),
+    'delivery_runtime/public/elements/su.png': fs.readFileSync(path.resolve(__dirname, '../public/elements/su.png')),
+    'delivery_runtime/public/elements/toprak.png': fs.readFileSync(path.resolve(__dirname, '../public/elements/toprak.png')),
+    'delivery_runtime/vercel.json': fs.readFileSync(path.resolve(__dirname, '../vercel.json'))
+  });
+}
+
 function verifyPhysicalSourceProvenance() {
   const provenance = sourceProvenance();
+  const bundled = readBundledPhysicalSource();
   return verifySourceManifest(provenance, (repoPath) => {
-    const runtimeRelative = repoPath.slice('delivery_runtime/'.length);
-    return fs.readFileSync(path.resolve(__dirname, '..', runtimeRelative));
+    if (!Object.prototype.hasOwnProperty.call(bundled, repoPath)) {
+      throw new Error('SOURCE_NOT_BUNDLED');
+    }
+    return bundled[repoPath];
   });
 }
 
