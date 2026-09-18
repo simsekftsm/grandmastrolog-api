@@ -1,0 +1,76 @@
+name: M1A-5 Current Groq 400 Diagnostic
+
+on:
+  push:
+    branches:
+      - m1a5-upstream-diagnostic-20260918
+    paths:
+      - '.github/workflows/m1a5-current-groq400-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  current-groq400-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET_SHA: 49d56e4585f0ab1a6b6fc550e3f2fe1651964371
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+    steps:
+      - name: Checkout exact current head
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+
+      - name: Wait for TPM window then make exactly one direct Groq call
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GROQ_API_KEY:-}" || { echo 'BLOCKED: GROQ_API_KEY_MISSING'; exit 2; }
+          sleep 65
+          node - <<'NODE'
+          const {availability,bindingInput}=require('./delivery_runtime/tests/helpers');
+          const {groqGenerationFormat,groqModelInstructions}=require('./delivery_runtime/lib/groq-binding');
+
+          (async()=>{
+            const bi=bindingInput(availability());
+            const response=await fetch('https://api.groq.com/openai/v1/responses',{
+              method:'POST',
+              headers:{
+                'authorization':'Bearer '+process.env.GROQ_API_KEY,
+                'content-type':'application/json'
+              },
+              body:JSON.stringify({
+                model:'openai/gpt-oss-120b',
+                instructions:groqModelInstructions(bi.availability,bi.verified_evidence),
+                input:bi.semantic_input,
+                text:{format:groqGenerationFormat(bi.verified_evidence,bi.availability)}
+              }),
+              signal:AbortSignal.timeout(70000)
+            });
+            let body={};
+            try{body=await response.json();}catch{}
+            const err=body&&typeof body==='object'?body.error:null;
+            const safe={
+              status:response.status,
+              error_message:err?.message??null,
+              error_type:err?.type??null,
+              error_code:err?.code??null,
+              error_param:err?.param??null,
+              retry_after:response.headers.get('retry-after'),
+              limit_requests:response.headers.get('x-ratelimit-limit-requests'),
+              remaining_requests:response.headers.get('x-ratelimit-remaining-requests'),
+              reset_requests:response.headers.get('x-ratelimit-reset-requests'),
+              limit_tokens:response.headers.get('x-ratelimit-limit-tokens'),
+              remaining_tokens:response.headers.get('x-ratelimit-remaining-tokens'),
+              reset_tokens:response.headers.get('x-ratelimit-reset-tokens')
+            };
+            console.log('SAFE_CURRENT_GROQ400_DIAG '+JSON.stringify(safe));
+          })().catch((e)=>{
+            console.error('DIAG_ERROR '+String(e?.name||'')+':'+String(e?.message||e));
+            process.exit(1);
+          });
+          NODE
