@@ -249,3 +249,4 @@ jobs:
           if v=='BLOCKED': raise SystemExit(2)
           raise SystemExit(3)
           PY
+# candidate-refresh: gemini31-normalizer-final
