@@ -4,8 +4,13 @@
     "api/model-natal.js": {
       "maxDuration": 60
     },
+    "api/delivery.js": {
+      "maxDuration": 15,
+      "includeFiles": "{api/**,contracts/**,lib/**,public/elements/**,package.json,vercel.json}"
+    },
     "api/e2e-natal.js": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "includeFiles": "{api/**,contracts/**,lib/**,public/elements/**,package.json,vercel.json}"
     },
     "api/*.js": {
       "maxDuration": 15
