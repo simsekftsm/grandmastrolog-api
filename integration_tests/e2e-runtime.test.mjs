@@ -38,8 +38,9 @@ function trustedReq(body) {
 
 function primeEnv() {
   process.env.GM_API_SECRET = 'synthetic-test-secret';
-  process.env.GROQ_API_KEY = 'synthetic-groq-key';
-  delete process.env.GROQ_MODEL;
+  process.env.OPENAI_API_KEY = 'synthetic-openai-key';
+  delete process.env.GM_MODEL;
+  delete process.env.GM_MODEL_PROVIDER;
   process.env.GM_FINAL_DELIVERY_AUTHORIZED = 'true';
   process.env.VERCEL_DEPLOYMENT_ID = 'dpl_SyntheticE2E';
   process.env.VERCEL_PROJECT_ID = 'prj_XhDus3tQsyiLxrPccbQteXLwbB2a';
@@ -130,7 +131,7 @@ test('schema or semantic escape from model is rejected before final delivery', a
   primeEnv();
   const res = await invoke((av) => {
     const payload = clone(validPayload(av));
-    payload.pre_seal_sections[0].body_paragraphs = ['> RAW-MARKDOWN-ESCAPE'];
+    payload.pre_seal_sections[0].body_paragraphs = ['[RAW-MARKDOWN-ESCAPE](https://example.invalid)'];
     return payload;
   });
   assert.equal(res.statusCode, 422);
