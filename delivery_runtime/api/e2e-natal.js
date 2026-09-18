@@ -21,6 +21,7 @@ const {
 
 const GROQ_RESPONSES_URL = 'https://api.groq.com/openai/v1/responses';
 const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-120b';
+const MAX_GROQ_OUTPUT_TOKENS = 3072;
 const MODEL_BINDING = 'groq_responses_json_schema_strict';
 
 function extractOutputText(response) {
@@ -90,6 +91,7 @@ module.exports = async function e2eNatal(req, res) {
       },
       body: JSON.stringify({
         model: DEFAULT_GROQ_MODEL,
+        max_output_tokens: MAX_GROQ_OUTPUT_TOKENS,
         instructions: groqModelInstructions(availability, bindingInput.verified_evidence),
         input: bindingInput.semantic_input,
         text: { format: groqGenerationFormat(bindingInput.verified_evidence, availability) }
