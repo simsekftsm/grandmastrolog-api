@@ -9,7 +9,7 @@ const FILES = Object.freeze({
   'delivery_runtime/api/render-natal.js': '6e6e83ec0098b0cfde0e1f1aee2f7831a34a989f',
   'delivery_runtime/api/validate-natal.js': '80b215152fab6835bcb4e3d1cd8938462b107124',
   'delivery_runtime/contracts/gm-natal-semantic-v1.schema.json': 'ee6fdd7c5a83aa9b897437987bbabaffddc6fa62',
-  'delivery_runtime/lib/delivery-validator.js': '315df611eedc7d1121f99204a5fb558ce6d2f17a',
+  'delivery_runtime/lib/delivery-validator.js': '83207dd11b0481e5e8270370d92f5d3b19b41ff0',
   'delivery_runtime/lib/element-visual.js': '79f11584ff1888b7ff511b5cb3a240788969843c',
   'delivery_runtime/lib/foundation.js': '0089910026d3d0379c7bbea9b01bce3adaa8748e',
   'delivery_runtime/lib/groq-binding.js': '88c2b59f6488ff9e35843df7ae8f9c2e6f7a8e45',
@@ -23,10 +23,10 @@ const FILES = Object.freeze({
   'delivery_runtime/public/elements/hava.png': '303fb8bbf897007c9d942ed6ae4882078de2ccbe',
   'delivery_runtime/public/elements/su.png': 'dc421441b5b82faf8e599ab20b717dc50e22c296',
   'delivery_runtime/public/elements/toprak.png': '8a64f0f2470b43b92bd33e0a506a65cfbc60a029',
-  'delivery_runtime/vercel.json': '00df89d17927cd0872305e680cd2beb180ae6149'
+  'delivery_runtime/vercel.json': '0948e04cdd2407cb4c3ce4923570a98726d9808c'
 });
 
-const FINGERPRINT = '577b259728a58ee562ee36f04c8c869ded6ad5c775c1f74a6b8b40d861c845a1';
+const FINGERPRINT = '775a6426092192a69da4f87d56e7bedb8ba1d5927e8e612b214ba03d894dd4f3';
 
 function sourceProvenance() {
   return {
