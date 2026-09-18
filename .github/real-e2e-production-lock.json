@@ -1,10 +1,10 @@
 {
-  "runtime_source_commit": "598a4d3129589bee1857bbf20dc4cbb5c471dd57",
-  "railway_deployment_id": "841cde25-798e-4613-bbc9-d6def0d29b20",
-  "vercel_deployment_id": "dpl_4jwfAWnQ64SvRUJquqWG5x38CaC2",
+  "runtime_source_commit": "ce60c472023faa3e0822f84e13ba556f93a4b171",
+  "railway_deployment_id": "cf3a152a-7914-48e5-a01d-f8c268fc9368",
+  "vercel_deployment_id": "dpl_5tfTnfqMFU94f4n5Xhq4Lgy6d8rG",
   "vercel_project_id": "prj_XhDus3tQsyiLxrPccbQteXLwbB2a",
-  "m1a4_source_fingerprint": "775a6426092192a69da4f87d56e7bedb8ba1d5927e8e612b214ba03d894dd4f3",
-  "integration_fingerprint": "c7d76b4bf258144113c3b1246ef398237b9fac2b25ab6a81fb4190b4b0d2f5a8",
+  "m1a4_source_fingerprint": "67d90a64dd60f566dc975739e765d3aa9e16ff3dd42fc4ab148950f72e4e803a",
+  "integration_fingerprint": "bb80e813a8b931e2bd4b0b0b91639e0b07822ec22c3e75b6a7dddbc987462285",
   "integration_files": {
     "Dockerfile": "f5afbfd5d740a607a20c185d892751807c2c655c",
     "delivery_runtime/api/e2e-natal.js": "c69272aa8cfd1b4e8c7e0187999674aeefaddc0e",
