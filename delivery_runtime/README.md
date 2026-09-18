@@ -1,17 +1,59 @@
-# GrandMastrolog Delivery Runtime — M1A-1
+# GrandMastrolog Delivery Runtime
 
-This directory is an isolated delivery-runtime root. It does not change the existing GrandMastrolog learning/memory API behavior.
+This directory contains the governed GrandMastrolog Natal delivery runtime.
 
-## Scope
+## Canonical model boundary
 
-M1A-1 establishes one thing only: a mandatory HTTP delivery boundary that is fail-closed by default.
+The runtime is provider-adapted and fail-closed.
 
-- `GET /api/health` proves the runtime is alive and reports stage capabilities.
-- `POST /api/delivery` deliberately returns `503 M1A_1_FOUNDATION_ONLY`.
-- Raw model text is never forwarded at this stage.
+- Canonical provider: OpenAI
+- Canonical default model: `gpt-5.6-luna`
+- Provider API: OpenAI Responses API
+- Structured output: strict JSON Schema
+- Reasoning effort: medium
+- Maximum provider output budget: 16384 tokens
+- Visible layout owner: deterministic GrandMastrolog renderer
+- Final semantic authority: server-side `gm.natal.v1` validator
 
-M1A-1 does **not** implement the M1A-2 structured output contract, M1A-3 canonical renderer, M1A-4 delivery validator, or any R2/R3/R4 behavior.
+The model does not own chart calculation, placements, inclusion flags, calibration,
+metadata, visible Markdown layout, or final delivery authority. Those are bound
+from verified server evidence and canonical runtime rules.
+
+## Deterministic semantic normalization
+
+Provider output passes through a formatting-only normalizer before the canonical
+semantic validator. It may remove presentation-only Markdown markers such as
+bold/backtick/heading/list/block-quote syntax. It must preserve the lexical
+letter/number token sequence exactly. Any lexical drift fails closed.
+
+Links, HTML and other unsafe semantic markup are not repaired and remain subject
+to rejection by the downstream contract.
+
+## Required runtime secrets
+
+- `GM_API_SECRET`: internal GrandMastrolog trust/request-signing secret.
+- `OPENAI_API_KEY`: provider credential for OpenAI Responses API.
+
+These secrets are not interchangeable.
+
+Optional freeze variables:
+
+- `GM_MODEL_PROVIDER` may be unset or exactly `openai`.
+- `GM_MODEL` may be unset or exactly `gpt-5.6-luna`.
+
+Any conflicting override fails closed.
+
+## Delivery path
+
+Verified astro evidence -> provider-neutral semantic generation schema -> Luna
+semantic candidate -> deterministic format normalization -> server canonical
+binding -> `gm.natal.v1` validation -> canonical renderer -> final delivery
+validator.
+
+Raw model output is never authorized as user-visible final delivery.
 
 ## Acceptance
 
-`npm test` must pass. The delivery endpoint must continue to reject every raw output until the later gates are explicitly implemented and independently accepted.
+A release candidate must pass the delivery-runtime regression suite, integration
+regression, frozen M1A-5 semantic-quality corpus, and counterexample specificity
+gate before production migration.
