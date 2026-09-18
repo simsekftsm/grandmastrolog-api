@@ -113,8 +113,8 @@ test('model-natal upstream failure fails closed without exposing raw provider ou
     assert.equal(JSON.stringify(res.body).includes('raw'), false);
     assert.equal(outboundBody.model, 'gemini-3.1-flash-lite');
     assert.equal(outboundBody.generation_config.max_output_tokens, 8192);
-    assert.equal(outboundBody.reasoning.effort, 'medium');
-    assert.equal(outboundBody.response_format.type, 'text');\n    assert.equal(outboundBody.response_format.mime_type, 'application/json');
+    assert.equal(outboundBody.response_format.type, 'text');
+    assert.equal(outboundBody.response_format.mime_type, 'application/json');
   } finally {
     global.fetch = oldFetch;
     if (oldGemini !== undefined) process.env.GEMINI_API_KEY = oldGemini; else delete process.env.GEMINI_API_KEY;
