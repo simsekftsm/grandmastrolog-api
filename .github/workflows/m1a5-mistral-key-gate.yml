@@ -18,13 +18,40 @@ jobs:
     env:
       MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
     steps:
-      - name: Verify Mistral key
+      - name: Verify Mistral key and basic Small 4 access
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "${MISTRAL_API_KEY:-}" ]; then
-            echo "MISTRAL_KEY_GATE=PASS"
-          else
-            echo "MISTRAL_KEY_GATE=BLOCKED"
-            exit 2
-          fi
+          test -n "${MISTRAL_API_KEY:-}" || { echo "MISTRAL_KEY_GATE=BLOCKED"; exit 2; }
+          node <<'NODE'
+          (async()=>{
+            const res=await fetch('https://api.mistral.ai/v1/chat/completions',{
+              method:'POST',
+              headers:{
+                authorization:'Bearer '+process.env.MISTRAL_API_KEY,
+                'content-type':'application/json'
+              },
+              body:JSON.stringify({
+                model:'mistral-small-2603',
+                messages:[{role:'user',content:'Reply only with OK.'}],
+                max_tokens:8,
+                temperature:0
+              }),
+              signal:AbortSignal.timeout(30000)
+            });
+            let json={}; try{json=await res.json()}catch{}
+            const pick=(name)=>res.headers.get(name);
+            console.log('MISTRAL_BASIC_PROBE '+JSON.stringify({
+              status:res.status,
+              error_type:json?.type??json?.error?.type??null,
+              error_code:json?.code??json?.error?.code??null,
+              error_message:typeof (json?.message||json?.error?.message)==='string'?String(json?.message||json?.error?.message).slice(0,500):null,
+              retry_after:pick('retry-after'),
+              rate_limit_limit:pick('x-ratelimit-limit'),
+              rate_limit_remaining:pick('x-ratelimit-remaining'),
+              rate_limit_reset:pick('x-ratelimit-reset'),
+              model:json?.model??null
+            }));
+            if(!res.ok) process.exit(1);
+          })().catch(e=>{console.error('MISTRAL_BASIC_PROBE_ERROR '+String(e?.message||e));process.exit(1)});
+          NODE
