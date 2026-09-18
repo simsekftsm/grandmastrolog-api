@@ -1,14 +1,13 @@
 'use strict';
 
-const { providerGenerationFormat, providerModelInstructions } = require('./semantic-generation');
+const { compactProviderSchema, providerModelInstructions } = require('./semantic-generation');
 const { SemanticNormalizationError, normalizeSemanticCandidate } = require('./semantic-normalizer');
 
-const DEFAULT_PROVIDER = 'openai';
-const DEFAULT_MODEL = 'gpt-5.6-luna';
-const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
-const OPENAI_MAX_OUTPUT_TOKENS = 16384;
-const OPENAI_REASONING_EFFORT = 'medium';
-const MODEL_BINDING = 'provider_adapter_openai_responses_json_schema_strict_v1';
+const DEFAULT_PROVIDER = 'google';
+const DEFAULT_MODEL = 'gemini-3.1-flash-lite';
+const GEMINI_INTERACTIONS_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
+const GEMINI_MAX_OUTPUT_TOKENS = 8192;
+const MODEL_BINDING = 'provider_adapter_gemini_interactions_json_schema_v1';
 
 class ProviderAdapterError extends Error {
   constructor(code, statusCode, details = {}) {
@@ -24,50 +23,51 @@ function runtimeConfig(env = process.env) {
   const provider = env.GM_MODEL_PROVIDER || DEFAULT_PROVIDER;
   const model = env.GM_MODEL || DEFAULT_MODEL;
 
-  if (provider !== DEFAULT_PROVIDER) {
+  if (provider !== DEFAULT_PROVIDER || model !== DEFAULT_MODEL) {
     throw new ProviderAdapterError('RUNTIME_MODEL_FREEZE_VIOLATION', 503, {
       expected_provider: DEFAULT_PROVIDER,
       expected_model: DEFAULT_MODEL
     });
   }
-  if (model !== DEFAULT_MODEL) {
-    throw new ProviderAdapterError('RUNTIME_MODEL_FREEZE_VIOLATION', 503, {
-      expected_provider: DEFAULT_PROVIDER,
-      expected_model: DEFAULT_MODEL
-    });
-  }
-  if (!env.OPENAI_API_KEY) {
+  if (!env.GEMINI_API_KEY) {
     throw new ProviderAdapterError('RUNTIME_SECRET_OR_MODEL_BINDING_UNAVAILABLE', 503);
   }
 
-  return { provider, model, apiKey: env.OPENAI_API_KEY };
+  return { provider, model, apiKey: env.GEMINI_API_KEY };
 }
 
 function extractOutputText(response) {
   if (typeof response?.output_text === 'string' && response.output_text.trim()) {
     return response.output_text;
   }
-  for (const item of response?.output || []) {
-    for (const content of item?.content || []) {
-      if (content?.type === 'refusal') {
-        throw new ProviderAdapterError('MODEL_REFUSAL', 502, { upstream_provider: DEFAULT_PROVIDER });
-      }
-      if (content?.type === 'output_text' && typeof content.text === 'string') {
-        return content.text;
-      }
+  const parts = [];
+  for (const step of response?.steps || []) {
+    if (step?.type !== 'model_output') continue;
+    for (const item of step?.content || []) {
+      if (item?.type === 'text' && typeof item.text === 'string') parts.push(item.text);
     }
   }
-  throw new ProviderAdapterError('MODEL_OUTPUT_MISSING', 502, { upstream_provider: DEFAULT_PROVIDER });
+  const text = parts.join('');
+  if (!text.trim()) {
+    throw new ProviderAdapterError('MODEL_OUTPUT_MISSING', 502, { upstream_provider: DEFAULT_PROVIDER });
+  }
+  return text;
 }
 
-function buildOpenAIRequest(bindingInput, model = DEFAULT_MODEL) {
+function buildGeminiRequest(bindingInput, model = DEFAULT_MODEL) {
   return {
     model,
-    instructions: providerModelInstructions(bindingInput.availability, bindingInput.verified_evidence),
-    input: bindingInput.semantic_input,
-    max_output_tokens: OPENAI_MAX_OUTPUT_TOKENS,
-    reasoning: { effort: OPENAI_REASONING_EFFORT },
-    text: { format: providerGenerationFormat(bindingInput.verified_evidence, bindingInput.availability) },
+    input: 'SEMANTIC_INPUT_JSON:\n' + JSON.stringify(bindingInput.semantic_input),
+    system_instruction: providerModelInstructions(bindingInput.availability, bindingInput.verified_evidence),
+    response_format: {
+      type: 'text',
+      mime_type: 'application/json',
+      schema: compactProviderSchema(bindingInput.verified_evidence, bindingInput.availability)
+    },
+    generation_config: {
+      max_output_tokens: GEMINI_MAX_OUTPUT_TOKENS,
+      seed: 0
+    },
     store: false
   };
 }
@@ -79,13 +79,13 @@ async function generateSemanticCandidate(bindingInput, options = {}) {
 
   let response;
   try {
-    response = await fetchImpl(OPENAI_RESPONSES_URL, {
+    response = await fetchImpl(GEMINI_INTERACTIONS_URL, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${config.apiKey}`,
+        'x-goog-api-key': config.apiKey,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(buildOpenAIRequest(bindingInput, config.model)),
+      body: JSON.stringify(buildGeminiRequest(bindingInput, config.model)),
       signal: AbortSignal.timeout(90000)
     });
   } catch (error) {
@@ -95,14 +95,17 @@ async function generateSemanticCandidate(bindingInput, options = {}) {
     throw error;
   }
 
+  let json = {};
+  try { json = await response.json(); } catch {}
+
   if (!response.ok) {
     throw new ProviderAdapterError('MODEL_BINDING_UPSTREAM_FAIL', 502, {
       upstream_provider: config.provider,
-      upstream_status: response.status
+      upstream_status: response.status,
+      upstream_error_status: json?.error?.status || null
     });
   }
 
-  const json = await response.json();
   if (json?.status && json.status !== 'completed') {
     throw new ProviderAdapterError('MODEL_RESPONSE_INCOMPLETE', 502, {
       upstream_provider: config.provider
@@ -143,13 +146,12 @@ async function generateSemanticCandidate(bindingInput, options = {}) {
 module.exports = {
   DEFAULT_PROVIDER,
   DEFAULT_MODEL,
-  OPENAI_RESPONSES_URL,
-  OPENAI_MAX_OUTPUT_TOKENS,
-  OPENAI_REASONING_EFFORT,
+  GEMINI_INTERACTIONS_URL,
+  GEMINI_MAX_OUTPUT_TOKENS,
   MODEL_BINDING,
   ProviderAdapterError,
   runtimeConfig,
   extractOutputText,
-  buildOpenAIRequest,
+  buildGeminiRequest,
   generateSemanticCandidate
 };
