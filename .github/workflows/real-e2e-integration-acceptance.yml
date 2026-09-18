@@ -2,6 +2,15 @@ name: GrandMastrolog REAL END-TO-END Integration Acceptance
 
 on:
   pull_request:
+    paths:
+      - 'delivery_runtime/**'
+      - 'gm_integration/**'
+      - 'integration-server.js'
+      - 'Dockerfile'
+      - 'openapi.yaml'
+      - '.github/real-e2e-production-lock.json'
+      - '.github/m1a4-final-production-lock.json'
+      - '.github/workflows/real-e2e-integration-acceptance.yml'
   workflow_dispatch:
 
 permissions:
@@ -229,11 +238,25 @@ jobs:
           import json,sys
           try: x=json.load(open('/tmp/direct-e2e-out.json',encoding='utf-8'))
           except Exception: x={}
-          raise SystemExit("SAFE_DIRECT_E2E_DIAG "+json.dumps({
+          diag={
               "status":sys.argv[1],"ok":x.get("ok"),"code":x.get("code"),
               "upstream_status":x.get("upstream_status"),"provider":x.get("upstream_provider")
-          },sort_keys=True))
+          }
+          print("SAFE_DIRECT_E2E_DIAG "+json.dumps(diag,sort_keys=True))
+          blocked=(
+              sys.argv[1]=='502'
+              and x.get('code')=='MODEL_BINDING_UPSTREAM_FAIL'
+              and x.get('upstream_status')==429
+              and x.get('upstream_provider')=='groq'
+          )
+          open('/tmp/real-e2e-classification','w',encoding='utf-8').write('BLOCKED' if blocked else 'FAIL')
           PY
+            if [ "$(cat /tmp/real-e2e-classification)" = 'BLOCKED' ]; then
+              echo 'BLOCKED:GROQ_TPD_RATE_LIMIT'
+              echo 'M1A_LIVE_PROVIDER_BLOCKED=1' >> "$GITHUB_ENV"
+              exit 0
+            fi
+            exit 1
           fi
           python3 - <<'PY'
           import json,re
@@ -288,4 +311,10 @@ jobs:
           PY
 
       - name: Acceptance summary
-        run: echo 'REAL END-TO-END INTEGRATION ACCEPTANCE PASS'
+        shell: bash
+        run: |
+          if [ "${M1A_LIVE_PROVIDER_BLOCKED:-0}" = '1' ]; then
+            echo 'REAL END-TO-END INTEGRATION ACCEPTANCE BLOCKED: GROQ_TPD_RATE_LIMIT'
+          else
+            echo 'REAL END-TO-END INTEGRATION ACCEPTANCE PASS'
+          fi

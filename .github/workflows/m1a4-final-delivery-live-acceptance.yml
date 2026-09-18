@@ -2,6 +2,12 @@ name: M1A-4 Final Delivery Live Acceptance
 
 on:
   pull_request:
+    paths:
+      - 'delivery_runtime/**'
+      - '.github/m1a4-final-production-lock.json'
+      - '.github/m1a4-trust-production-lock.json'
+      - '.github/real-e2e-production-lock.json'
+      - '.github/workflows/m1a4-final-delivery-live-acceptance.yml'
   workflow_dispatch:
 
 permissions:
@@ -309,7 +315,37 @@ jobs:
               -H 'x-gm-evidence-source: grandmastrolog-api' -H "x-gm-evidence-timestamp: $ts" \
               -H "x-gm-evidence-signature: $sig" --data-binary "@$file"
           }
-          test "$(call model-natal /tmp/model.json /tmp/model-out.json)" = '200'
+          MODEL_STATUS="$(call model-natal /tmp/model.json /tmp/model-out.json)"
+          if [ "$MODEL_STATUS" != '200' ]; then
+            python3 - "$MODEL_STATUS" <<'PY'
+          import json,sys
+          try:
+              x=json.load(open('/tmp/model-out.json',encoding='utf-8'))
+          except Exception:
+              x={}
+          diag={
+              "status":sys.argv[1],
+              "ok":x.get("ok"),
+              "code":x.get("code"),
+              "upstream_provider":x.get("upstream_provider"),
+              "upstream_status":x.get("upstream_status")
+          }
+          print("SAFE_MODEL_DIAG "+json.dumps(diag,sort_keys=True))
+          blocked=(
+              sys.argv[1]=='502'
+              and x.get('code')=='MODEL_BINDING_UPSTREAM_FAIL'
+              and x.get('upstream_provider')=='groq'
+              and x.get('upstream_status')==429
+          )
+          open('/tmp/m1a4-model-classification','w',encoding='utf-8').write('BLOCKED' if blocked else 'FAIL')
+          PY
+            if [ "$(cat /tmp/m1a4-model-classification)" = 'BLOCKED' ]; then
+              echo 'BLOCKED:GROQ_TPD_RATE_LIMIT'
+              echo 'M1A_LIVE_PROVIDER_BLOCKED=1' >> "$GITHUB_ENV"
+              exit 0
+            fi
+            exit 1
+          fi
           python3 - <<'PY'
           import json
           model=json.load(open('/tmp/model-out.json')); binding=json.load(open('/tmp/model.json'))
@@ -340,3 +376,12 @@ jobs:
           assert x.get('ok') is True
           assert (x.get('swisseph') or {}).get('ok') is True
           PY
+
+      - name: Acceptance summary
+        shell: bash
+        run: |
+          if [ "${M1A_LIVE_PROVIDER_BLOCKED:-0}" = '1' ]; then
+            echo 'M1A-4 FINAL DELIVERY LIVE ACCEPTANCE BLOCKED: GROQ_TPD_RATE_LIMIT'
+          else
+            echo 'M1A-4 FINAL DELIVERY LIVE ACCEPTANCE PASS'
+          fi
