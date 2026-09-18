@@ -39,6 +39,13 @@ jobs:
           git cat-file -e "$RUNTIME_SHA^{commit}"
           git diff --exit-code "$RUNTIME_SHA" HEAD -- delivery_runtime gm_integration integration-server.js openapi.yaml Dockerfile package.json package-lock.json
           git fetch --no-tags --depth=1 origin "$FROZEN_SHA"
+          for f in             m1a5_acceptance/corpus.normal-natal.v1.json             m1a5_acceptance/rubric.semantic-quality.v1.json             m1a5_acceptance/frozen-manifest.json             m1a5_acceptance/oracle-core.mjs
+          do
+            test "$(git rev-parse "HEAD:$f")" = "$(git rev-parse "FETCH_HEAD:$f")" || {
+              echo "FAIL:FROZEN_ARTIFACT_DRIFT:$f"
+              exit 1
+            }
+          done
           git show "FETCH_HEAD:m1a5_acceptance/corpus.normal-natal.v1.json" > /tmp/corpus.json
           git show "FETCH_HEAD:m1a5_acceptance/frozen-manifest.json" > /tmp/manifest.json
           python3 - <<'PY'
@@ -62,6 +69,7 @@ jobs:
           const {groqGenerationFormat,groqModelInstructions}=require('./delivery_runtime/lib/groq-binding.js');
           const {canonicalizeModelPayload}=require('./delivery_runtime/lib/model-binding.js');
           const {validateBindingInput,makeValidatedEnvelope}=require('./delivery_runtime/lib/natal-contract.js');
+          const {renderCanonicalNatal}=require('./delivery_runtime/lib/natal-renderer.js');
 
           const corpus=JSON.parse(fs.readFileSync('/tmp/corpus.json','utf8'));
           const GAP_MS=20000;
@@ -100,6 +108,7 @@ jobs:
           }
 
           async function geminiCall(t,bi){
+            await waitGap();
             const res=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{
               method:'POST',
               headers:{
@@ -113,7 +122,7 @@ jobs:
                 response_format:{
                   type:'text',
                   mime_type:'application/json',
-                  schema:sanitizeGeminiSchema(groqGenerationFormat(bi.verified_evidence,bi.availability).schema)
+                  schema:compactGeminiSchema(bi)
                 },
                 generation_config:{max_output_tokens:8192,seed:0},
                 store:false
@@ -122,29 +131,36 @@ jobs:
             });
             let json={}; try{json=await res.json()}catch{}
             const err=json?.error||{};
-            let parse_ok=false,canonical_validation_ok=false;
-            if(res.ok){
-              try{
-                const parsed=JSON.parse(interactionText(json));
-                parse_ok=true;
-                const {evidenceMap,availability}=validateBindingInput(bi);
-                const canonical=canonicalizeModelPayload(parsed,evidenceMap,availability);
-                makeValidatedEnvelope(canonical,evidenceMap,availability);
-                canonical_validation_ok=true;
-              }catch{}
+            if(!res.ok){
+              return {
+                verdict:'BLOCKED',
+                reason:'GEMINI_HTTP_'+res.status,
+                diagnostic:{
+                  status:res.status,
+                  error_code:err?.code??null,
+                  error_status:err?.status??null,
+                  error_message:typeof err?.message==='string'?err.message.slice(0,1000):null
+                }
+              };
             }
-            console.log('GEMINI_ISOLATED_DIAG '+JSON.stringify({
-              case_id:t.case_id,
-              status:res.status,
-              response_status:json?.status??null,
-              parse_ok,
-              canonical_validation_ok,
-              error_code:err?.code??null,
-              error_status:err?.status??null,
-              error_message:typeof err?.message==='string'?err.message.slice(0,1000):null,
-              error_details:Array.isArray(err?.details)?err.details:null
-            }));
-            return canonical_validation_ok;
+            if(json?.status && json.status!=='completed'){
+              return {verdict:'BLOCKED',reason:'GEMINI_STATUS_'+String(json.status)};
+            }
+            const text=interactionText(json);
+            if(!text) return {verdict:'UNKNOWN',reason:'GEMINI_OUTPUT_MISSING'};
+            try{
+              const parsed=JSON.parse(text);
+              const {evidenceMap,availability}=validateBindingInput(bi);
+              const canonical=canonicalizeModelPayload(parsed,evidenceMap,availability);
+              makeValidatedEnvelope(canonical,evidenceMap,availability);
+              return {verdict:'PASS',canonical,usage:json?.usage||null};
+            }catch(error){
+              return {
+                verdict:'FAIL',
+                reason:'GEMINI_DOWNSTREAM_VALIDATION',
+                error_code:String(error?.code||error?.message||'UNKNOWN')
+              };
+            }
           }
 
           function compactGeminiSchema(bi){
@@ -240,42 +256,141 @@ jobs:
           }
 
           (async()=>{
-            await smoke('BASIC',{
-              model:'gemini-3.6-flash',
-              input:'Reply with the word OK.',
-              store:false
-            });
-            await smoke('SIMPLE_JSON',{
-              model:'gemini-3.6-flash',
-              input:'Return an object whose ok field is the string yes.',
-              response_format:{
-                type:'text',
-                mime_type:'application/json',
-                schema:{
-                  type:'object',
-                  additionalProperties:false,
-                  required:['ok'],
-                  properties:{ok:{type:'string',enum:['yes']}}
+            const {evaluate,anchorScore,producer,aggregate}=await import('./m1a5_acceptance/oracle-core.mjs');
+            const frozenRubric=JSON.parse(fs.readFileSync('m1a5_acceptance/rubric.semantic-quality.v1.json','utf8'));
+            const delta=JSON.parse(fs.readFileSync('m1a5_successor/calibration-delta.v1.json','utf8'));
+            const rubric=JSON.parse(JSON.stringify(frozenRubric));
+            const old=delta.superseded_markers;
+            const markers=rubric.canonical_language.required_markers_exact_once_in_order;
+            if(delta.mutation_scope!=='canonical_language.required_markers_exact_once_in_order') throw new Error('DELTA_SCOPE_INVALID');
+            if(delta.semantic_thresholds_unchanged!==true) throw new Error('DELTA_THRESHOLDS_UNLOCKED');
+            if(!old.every(x=>markers.filter(y=>y===x).length===1)) throw new Error('DELTA_MARKER_IDENTITY');
+            const insertAt=Math.min(...old.map(x=>markers.indexOf(x)));
+            const next=markers.filter(x=>!old.includes(x));
+            next.splice(insertAt,0,delta.authorized_marker);
+            rubric.canonical_language.required_markers_exact_once_in_order=next;
+
+            fs.mkdirSync('m1a5_gemini/run-artifacts',{recursive:true});
+            const cases=[];
+            for(const t of corpus.cases){
+              const built=buildNatalBindingInput({request_id:t.request_id,birth:t.birth});
+              const bi=built.binding_input;
+              const live=await geminiCall(t,bi);
+              if(live.verdict!=='PASS'){
+                cases.push({case_id:t.case_id,verdict:live.verdict,reason:live.reason,diagnostic:live.diagnostic||null,error_code:live.error_code||null});
+                console.log('GEMINI_CASE '+JSON.stringify(cases[cases.length-1]));
+                continue;
+              }
+              const render=renderCanonicalNatal(bi,live.canonical);
+              const e=evaluate(render.canonical_markdown,bi.verified_evidence,rubric);
+              const verdict=aggregate(Object.values(e.dimensions).map(x=>x.verdict));
+              const item={
+                case_id:t.case_id,
+                verdict,
+                dimensions:e.dimensions,
+                producer_failures:e.producer_failures,
+                own_anchor_score:e.anchor.score,
+                matched_anchor_subjects:e.anchor.matched,
+                output_sha256:render.canonical_markdown_sha256,
+                usage:live.usage,
+                _body:e.combinedBody,
+                _ev:bi.verified_evidence
+              };
+              fs.writeFileSync('m1a5_gemini/run-artifacts/'+t.case_id+'.json',JSON.stringify({
+                case_id:t.case_id,
+                model:'gemini-3.6-flash',
+                output_sha256:render.canonical_markdown_sha256,
+                canonical_markdown:render.canonical_markdown,
+                dimensions:e.dimensions,
+                producer_failures:e.producer_failures,
+                usage:live.usage
+              },null,2)+'\n');
+              cases.push(item);
+              console.log('GEMINI_CASE '+JSON.stringify({case_id:t.case_id,verdict,dimensions:Object.fromEntries(Object.entries(e.dimensions).map(([k,v])=>[k,v.verdict]))}));
+            }
+
+            const complete=cases.filter(x=>x._body&&x._ev);
+            const counterexample=[];
+            if(complete.length!==corpus.cases.length){
+              counterexample.push({verdict:'UNKNOWN',reason:'COUNTEREXAMPLE_REQUIRES_ALL_CORPUS_OUTPUTS'});
+            }else{
+              for(const own of complete){
+                const ownScore=anchorScore(own._body,own._ev,rubric.specificity.anchor_subjects).score;
+                let bestOther=0;
+                const comparisons=[];
+                for(const other of complete){
+                  if(other.case_id===own.case_id) continue;
+                  const score=anchorScore(own._body,other._ev,rubric.specificity.anchor_subjects).score;
+                  bestOther=Math.max(bestOther,score);
+                  comparisons.push({against_case_id:other.case_id,score});
                 }
-              },
-              store:false
-            });
-            const t=corpus.cases[0];
-            const bi=buildNatalBindingInput({request_id:t.request_id,birth:t.birth}).binding_input;
-            await smoke('COMPACT_GM_SCHEMA',{
+                const margin=ownScore-bestOther;
+                const pass=ownScore>=rubric.counterexample_specificity.minimum_own_anchor_score&&margin>=rubric.counterexample_specificity.minimum_margin_over_best_other_case;
+                counterexample.push({
+                  case_id:own.case_id,
+                  verdict:pass?'PASS':'FAIL',
+                  own_anchor_score:ownScore,
+                  best_other_case_score:bestOther,
+                  margin,
+                  comparisons,
+                  producer:pass?null:producer('counterexample_specificity')
+                });
+              }
+            }
+
+            for(const x of cases){delete x._body;delete x._ev}
+            const overall=aggregate([...cases.map(x=>x.verdict),...counterexample.map(x=>x.verdict)]);
+            const result={
+              overall,
+              acceptance_id:'M1A-5_GEMINI_3_6_FLASH_ISOLATED_SUCCESSOR',
+              runtime_base:'b5ee123cecdbe220a8db7957a64f881738c07b24',
               model:'gemini-3.6-flash',
-              input:'SEMANTIC_INPUT_JSON:\n'+JSON.stringify(bi.semantic_input),
-              system_instruction:groqModelInstructions(bi.availability,bi.verified_evidence),
-              response_format:{
-                type:'text',
-                mime_type:'application/json',
-                schema:compactGeminiSchema(bi)
-              },
-              generation_config:{max_output_tokens:8192,seed:0},
-              store:false
-            });
+              provider_schema:'compact_semantic_candidate_v1',
+              frozen_corpus_sha256:'d9d0e964d28b0fbbc70f4767a75283a6056524fed945dd39710a11693c0987c',
+              frozen_rubric_sha256:'9cd31fe783d49326e16988dbd3c63d148f98d9343c0b2991bb9209011ab71ad4',
+              successor_delta_id:delta.successor_delta_id,
+              cases,
+              counterexample_specificity:counterexample
+            };
+            fs.writeFileSync('m1a5_gemini/run-artifacts/results.json',JSON.stringify(result,null,2)+'\n');
+            console.log('GEMINI_M1A5_OVERALL='+overall);
+            for(const z of counterexample) console.log('GEMINI_COUNTEREXAMPLE '+JSON.stringify(z));
+            if(overall!=='PASS') process.exitCode=1;
           })().catch(e=>{
-            console.error('GEMINI_SMOKE_ERROR '+String(e?.name||'')+':'+String(e?.message||e));
+            console.error('GEMINI_ACCEPTANCE_ERROR '+String(e?.name||'')+':'+String(e?.message||e));
             process.exit(1);
           });
           NODE
+
+      - name: Upload Gemini isolated evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1a5-gemini-3-6-isolated-${{ github.sha }}
+          path: m1a5_gemini/run-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Gemini isolated acceptance gate
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f m1a5_gemini/run-artifacts/results.json || {
+            echo 'BLOCKED:GEMINI_RESULT_MISSING'
+            exit 2
+          }
+          python3 - <<'PY'
+          import json
+          x=json.load(open('m1a5_gemini/run-artifacts/results.json',encoding='utf-8'))
+          print('GEMINI_M1A5_ACCEPTANCE='+str(x.get('overall')))
+          for c in x.get('cases',[]):
+              print('CASE',c.get('case_id'),c.get('verdict'),c.get('reason',''))
+          for z in x.get('counterexample_specificity',[]):
+              print('COUNTEREXAMPLE',json.dumps(z,ensure_ascii=False,sort_keys=True))
+          v=x.get('overall')
+          if v=='PASS': raise SystemExit(0)
+          if v=='FAIL': raise SystemExit(1)
+          if v=='BLOCKED': raise SystemExit(2)
+          raise SystemExit(3)
+          PY
