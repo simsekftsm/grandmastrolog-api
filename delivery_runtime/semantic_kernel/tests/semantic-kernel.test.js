@@ -6,13 +6,14 @@ const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
 const {
-  buildFrozenNatalArtifact,verifyFrozenArtifact,backwardSlice,forwardSlice,
-  counterfactualSlice,sameSemanticSnapshot,independentSupportCount,SemanticKernelError
+  buildFrozenNatalArtifact,verifyFrozenArtifact,backwardSlice,forwardSlice,blameSlice,
+  counterfactualSlice,planRebuild,sameSemanticSnapshot,independentSupportCount,SemanticKernelError
 }=require('../kernel');
 const {validateNarrative,NarrativeBoundaryError}=require('../narrative-boundary');
 const {AtomicSemanticStore}=require('../transaction-store');
 const {partitionWorlds}=require('../uncertainty');
 const {migrateArtifact}=require('../migration');
+const {assertCapability}=require('../pass-contracts');
 
 const subjects=['sun','moon','ascendant','mercury','venus','mars','jupiter','saturn','uranus','neptune','pluto','north_node','mc'];
 function binding(){return {
@@ -493,4 +494,31 @@ test('narrative boundary permits human synthesis and metaphor when claim anchore
     claim_refs:[claim.claim_state_id]
   };
   assert.match(validateNarrative(a,n).narrative_anchor_id,/^nar_/);
+});
+
+
+test('doctrine semantics are frozen before narrative generation',()=>{
+  const a=artifact();
+  const profile=a.defeasible_interpretation_state.claims.filter((x)=>x.section_id==='profilin');
+  assert.ok(profile.some((x)=>/inisiyatif|doğrudanlık|özerklik/u.test(x.proposition)));
+  assert.ok(profile.some((x)=>/benlik, görünüş, başlangıçlar/u.test(x.proposition)));
+});
+
+test('positive capability boundary rejects ungranted semantic namespace',()=>{
+  assert.throws(()=>assertCapability('observed_state','narrative'),/CAPABILITY_DENIED/);
+  assert.throws(()=>assertCapability('observed_state','defeasible_interpretation_state'),/CAPABILITY_NOT_GRANTED/);
+});
+
+test('incremental rebuild planner distinguishes semantic change classes',()=>{
+  assert.equal(planRebuild(['renderer']).mode,'PATCH');
+  assert.equal(planRebuild(['doctrine_pack']).mode,'PARTIAL_REBUILD');
+  assert.equal(planRebuild(['verified_evidence.sun']).from,'observed_calculated_state');
+  assert.equal(planRebuild(['astroir_schema']).mode,'FULL_SEMANTIC_REBUILD');
+});
+
+test('blame slice identifies changed proposition set',()=>{
+  const a=artifact(),input=binding();
+  input.verified_evidence[0]={...input.verified_evidence[0],sign:'Boğa'};
+  const b=artifact(input);
+  assert.ok(blameSlice(a,b).length>0);
 });
