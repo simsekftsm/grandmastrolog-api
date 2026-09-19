@@ -52,7 +52,397 @@ test('unauthorized semantic delta fails closed',()=>{const parent=artifact(),inp
 test('narrative cannot reference unknown claim',()=>{const a=artifact(),n=narrative(a);n.sections[0].paragraphs[0].claim_refs=['claim_'+'0'.repeat(64)];assert.throws(()=>validateNarrative(a,n),NarrativeBoundaryError);});
 test('unsupported causal invention fails closed',()=>{const a=artifact(),n=narrative(a);n.sections[0].paragraphs[0].text='Çocukluk travman yüzünden böyle davranırsın ve profil göstergelerin bunu kanıtlar.';assert.throws(()=>validateNarrative(a,n),(e)=>e.code==='UNSUPPORTED_CAUSAL_CLAIM');});
 test('claim anchored narrative cannot mutate frozen artifact',()=>{const a=artifact(),before=a.artifact_sha256;const ledger=validateNarrative(a,narrative(a));assert.match(ledger.narrative_anchor_id,/^nar_/);assert.equal(a.artifact_sha256,before);});
-test('crash before atomic rename preserves accepted state',()=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gm-sk-')),store=new AtomicSemanticStore(dir),a=artifact();store.commit(a);const input=binding();input.verified_evidence[0]={...input.verified_evidence[0],degree:'1°01′'};const b=artifact(input);assert.throws(()=>store.commit(b,{crashBeforeRename:true}),/SIMULATED_CRASH/);assert.equal(store.readAccepted().artifact_sha256,a.artifact_sha256);assert.equal(store.verifyConsistency().state,'CONSISTENT');});
+test('crash before atomic rename preserves accepted state',()=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gm-sk-')),store=new AtomicSemanticStore(dir),a=artifact();store.commit(a);const input=binding();input.verified_evidence[0]={...input.verified_evidence[0],degree:'1°01′'};const b=artifact(input,{parentAcceptedArtifact:a,authorityEnvelope:{authority_id:'owner-update',write_scopes:['
+test('possible worlds distinguish robust and unstable',()=>{const p=partitionWorlds([{world_id:'a',start:'15:20',end:'15:30',claim_states:{x:'SUPPORTED',y:'SUPPORTED'}},{world_id:'b',start:'15:30',end:'15:40',claim_states:{x:'SUPPORTED',y:'REFUTED'}}]);assert.equal(p.robustness.x,'ROBUST');assert.equal(p.robustness.y,'UNSTABLE');});
+
+
+test('snapshot confluence ignores verified evidence ordering',()=>{
+  const aInput=binding(),bInput=binding();
+  bInput.verified_evidence.reverse();
+  assert.equal(artifact(aInput).artifact_sha256,artifact(bInput).artifact_sha256);
+});
+
+test('noninterference ignores transport request identity and source-ref wording',()=>{
+  const aInput=binding(),bInput=binding();
+  bInput.request_id='another-request';
+  bInput.verified_evidence=bInput.verified_evidence.map((x)=>({...x,source_ref:'astro://different-transport/'+x.subject_id,semantic_value:'transport wording '+x.subject_id}));
+  assert.equal(artifact(aInput).artifact_sha256,artifact(bInput).artifact_sha256);
+});
+
+test('semantic identity is independent from transition identity',()=>{const a=artifact(binding(),{authorityEnvelope:{authority_id:'authority-a',write_scopes:['
+  const a=artifact();
+  const b=artifact(binding(),{parentAcceptedArtifact:a,authorityEnvelope:{authority_id:'same-state',write_scopes:['$']}});
+  assert.equal(b.artifact_sha256,a.artifact_sha256);
+  assert.equal(b.transition.transition_id,a.transition.transition_id);
+});
+
+test('lineage policy does not count same roots as independent support',()=>{
+  const a=artifact();
+  const profile=a.defeasible_interpretation_state.claims.filter((x)=>x.section_id==='profilin');
+  assert.equal(profile.length,2);
+  assert.equal(independentSupportCount(a,profile.map((x)=>x.claim_state_id)),1);
+});
+
+test('unregistered migration fails closed',()=>{
+  const a=artifact();
+  assert.throws(()=>migrateArtifact(a,'gm.astroir.v2',{authority_id:'owner'}),/MIGRATION_NOT_REGISTERED/);
+});
+
+test('registered identity migration is explicit and provenance carrying',()=>{
+  const a=artifact();
+  const m=migrateArtifact(a,'gm.astroir.v1',{authority_id:'owner'});
+  assert.equal(m.artifact.artifact_sha256,a.artifact_sha256);
+  assert.match(m.evidence.migration_id,/^mig_[a-f0-9]{64}$/);
+});
+
+test('narrative boundary permits human synthesis and metaphor when claim anchored',()=>{
+  const a=artifact(),n=narrative(a);
+  const claim=a.defeasible_interpretation_state.claims.find((x)=>x.section_id==='profilin');
+  n.sections[0].paragraphs[0]={
+    text:'Güneş, Ay ve Yükselen aynı masada oturuyor gibi: kimlik, duygu ve dış tavır birbirini ezmeden birlikte okunuyor.',
+    claim_refs:[claim.claim_state_id]
+  };
+  assert.match(validateNarrative(a,n).narrative_anchor_id,/^nar_/);
+});
+]}});assert.throws(()=>store.commit(b,{crashBeforeRename:true}),/SIMULATED_CRASH/);const restarted=new AtomicSemanticStore(dir);assert.equal(restarted.readAccepted().artifact_sha256,a.artifact_sha256);assert.equal(restarted.verifyConsistency().state,'CONSISTENT');});
+
+test('crash after atomic rename exposes complete new state and ledger on restart',()=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gm-sk-')),store=new AtomicSemanticStore(dir),a=artifact();store.commit(a);const input=binding();input.verified_evidence[0]={...input.verified_evidence[0],degree:'1°01′'};const b=artifact(input,{parentAcceptedArtifact:a,authorityEnvelope:{authority_id:'owner-update',write_scopes:['
+test('possible worlds distinguish robust and unstable',()=>{const p=partitionWorlds([{world_id:'a',start:'15:20',end:'15:30',claim_states:{x:'SUPPORTED',y:'SUPPORTED'}},{world_id:'b',start:'15:30',end:'15:40',claim_states:{x:'SUPPORTED',y:'REFUTED'}}]);assert.equal(p.robustness.x,'ROBUST');assert.equal(p.robustness.y,'UNSTABLE');});
+
+
+test('snapshot confluence ignores verified evidence ordering',()=>{
+  const aInput=binding(),bInput=binding();
+  bInput.verified_evidence.reverse();
+  assert.equal(artifact(aInput).artifact_sha256,artifact(bInput).artifact_sha256);
+});
+
+test('noninterference ignores transport request identity and source-ref wording',()=>{
+  const aInput=binding(),bInput=binding();
+  bInput.request_id='another-request';
+  bInput.verified_evidence=bInput.verified_evidence.map((x)=>({...x,source_ref:'astro://different-transport/'+x.subject_id,semantic_value:'transport wording '+x.subject_id}));
+  assert.equal(artifact(aInput).artifact_sha256,artifact(bInput).artifact_sha256);
+});
+
+test('idempotent rebuild over accepted state returns same artifact and no new transition',()=>{
+  const a=artifact();
+  const b=artifact(binding(),{parentAcceptedArtifact:a,authorityEnvelope:{authority_id:'same-state',write_scopes:['$']}});
+  assert.equal(b.artifact_sha256,a.artifact_sha256);
+  assert.equal(b.transition.transition_id,a.transition.transition_id);
+});
+
+test('lineage policy does not count same roots as independent support',()=>{
+  const a=artifact();
+  const profile=a.defeasible_interpretation_state.claims.filter((x)=>x.section_id==='profilin');
+  assert.equal(profile.length,2);
+  assert.equal(independentSupportCount(a,profile.map((x)=>x.claim_state_id)),1);
+});
+
+test('unregistered migration fails closed',()=>{
+  const a=artifact();
+  assert.throws(()=>migrateArtifact(a,'gm.astroir.v2',{authority_id:'owner'}),/MIGRATION_NOT_REGISTERED/);
+});
+
+test('registered identity migration is explicit and provenance carrying',()=>{
+  const a=artifact();
+  const m=migrateArtifact(a,'gm.astroir.v1',{authority_id:'owner'});
+  assert.equal(m.artifact.artifact_sha256,a.artifact_sha256);
+  assert.match(m.evidence.migration_id,/^mig_[a-f0-9]{64}$/);
+});
+
+test('narrative boundary permits human synthesis and metaphor when claim anchored',()=>{
+  const a=artifact(),n=narrative(a);
+  const claim=a.defeasible_interpretation_state.claims.find((x)=>x.section_id==='profilin');
+  n.sections[0].paragraphs[0]={
+    text:'Güneş, Ay ve Yükselen aynı masada oturuyor gibi: kimlik, duygu ve dış tavır birbirini ezmeden birlikte okunuyor.',
+    claim_refs:[claim.claim_state_id]
+  };
+  assert.match(validateNarrative(a,n).narrative_anchor_id,/^nar_/);
+});
+]}});assert.throws(()=>store.commit(b,{crashAfterRename:true}),/SIMULATED_CRASH_AFTER_ATOMIC_COMMIT/);const restarted=new AtomicSemanticStore(dir);assert.equal(restarted.readAccepted().artifact_sha256,b.artifact_sha256);assert.equal(restarted.readLedger().at(-1).transition_id,b.transition.transition_id);assert.equal(restarted.verifyConsistency().state,'CONSISTENT');});
+test('possible worlds distinguish robust and unstable',()=>{const p=partitionWorlds([{world_id:'a',start:'15:20',end:'15:30',claim_states:{x:'SUPPORTED',y:'SUPPORTED'}},{world_id:'b',start:'15:30',end:'15:40',claim_states:{x:'SUPPORTED',y:'REFUTED'}}]);assert.equal(p.robustness.x,'ROBUST');assert.equal(p.robustness.y,'UNSTABLE');});
+
+
+test('snapshot confluence ignores verified evidence ordering',()=>{
+  const aInput=binding(),bInput=binding();
+  bInput.verified_evidence.reverse();
+  assert.equal(artifact(aInput).artifact_sha256,artifact(bInput).artifact_sha256);
+});
+
+test('noninterference ignores transport request identity and source-ref wording',()=>{
+  const aInput=binding(),bInput=binding();
+  bInput.request_id='another-request';
+  bInput.verified_evidence=bInput.verified_evidence.map((x)=>({...x,source_ref:'astro://different-transport/'+x.subject_id,semantic_value:'transport wording '+x.subject_id}));
+  assert.equal(artifact(aInput).artifact_sha256,artifact(bInput).artifact_sha256);
+});
+
+test('idempotent rebuild over accepted state returns same artifact and no new transition',()=>{
+  const a=artifact();
+  const b=artifact(binding(),{parentAcceptedArtifact:a,authorityEnvelope:{authority_id:'same-state',write_scopes:['$']}});
+  assert.equal(b.artifact_sha256,a.artifact_sha256);
+  assert.equal(b.transition.transition_id,a.transition.transition_id);
+});
+
+test('lineage policy does not count same roots as independent support',()=>{
+  const a=artifact();
+  const profile=a.defeasible_interpretation_state.claims.filter((x)=>x.section_id==='profilin');
+  assert.equal(profile.length,2);
+  assert.equal(independentSupportCount(a,profile.map((x)=>x.claim_state_id)),1);
+});
+
+test('unregistered migration fails closed',()=>{
+  const a=artifact();
+  assert.throws(()=>migrateArtifact(a,'gm.astroir.v2',{authority_id:'owner'}),/MIGRATION_NOT_REGISTERED/);
+});
+
+test('registered identity migration is explicit and provenance carrying',()=>{
+  const a=artifact();
+  const m=migrateArtifact(a,'gm.astroir.v1',{authority_id:'owner'});
+  assert.equal(m.artifact.artifact_sha256,a.artifact_sha256);
+  assert.match(m.evidence.migration_id,/^mig_[a-f0-9]{64}$/);
+});
+
+test('narrative boundary permits human synthesis and metaphor when claim anchored',()=>{
+  const a=artifact(),n=narrative(a);
+  const claim=a.defeasible_interpretation_state.claims.find((x)=>x.section_id==='profilin');
+  n.sections[0].paragraphs[0]={
+    text:'Güneş, Ay ve Yükselen aynı masada oturuyor gibi: kimlik, duygu ve dış tavır birbirini ezmeden birlikte okunuyor.',
+    claim_refs:[claim.claim_state_id]
+  };
+  assert.match(validateNarrative(a,n).narrative_anchor_id,/^nar_/);
+});
+]}});const b=artifact(binding(),{authorityEnvelope:{authority_id:'authority-b',write_scopes:['
+  const a=artifact();
+  const b=artifact(binding(),{parentAcceptedArtifact:a,authorityEnvelope:{authority_id:'same-state',write_scopes:['$']}});
+  assert.equal(b.artifact_sha256,a.artifact_sha256);
+  assert.equal(b.transition.transition_id,a.transition.transition_id);
+});
+
+test('lineage policy does not count same roots as independent support',()=>{
+  const a=artifact();
+  const profile=a.defeasible_interpretation_state.claims.filter((x)=>x.section_id==='profilin');
+  assert.equal(profile.length,2);
+  assert.equal(independentSupportCount(a,profile.map((x)=>x.claim_state_id)),1);
+});
+
+test('unregistered migration fails closed',()=>{
+  const a=artifact();
+  assert.throws(()=>migrateArtifact(a,'gm.astroir.v2',{authority_id:'owner'}),/MIGRATION_NOT_REGISTERED/);
+});
+
+test('registered identity migration is explicit and provenance carrying',()=>{
+  const a=artifact();
+  const m=migrateArtifact(a,'gm.astroir.v1',{authority_id:'owner'});
+  assert.equal(m.artifact.artifact_sha256,a.artifact_sha256);
+  assert.match(m.evidence.migration_id,/^mig_[a-f0-9]{64}$/);
+});
+
+test('narrative boundary permits human synthesis and metaphor when claim anchored',()=>{
+  const a=artifact(),n=narrative(a);
+  const claim=a.defeasible_interpretation_state.claims.find((x)=>x.section_id==='profilin');
+  n.sections[0].paragraphs[0]={
+    text:'Güneş, Ay ve Yükselen aynı masada oturuyor gibi: kimlik, duygu ve dış tavır birbirini ezmeden birlikte okunuyor.',
+    claim_refs:[claim.claim_state_id]
+  };
+  assert.match(validateNarrative(a,n).narrative_anchor_id,/^nar_/);
+});
+]}});assert.throws(()=>store.commit(b,{crashBeforeRename:true}),/SIMULATED_CRASH/);const restarted=new AtomicSemanticStore(dir);assert.equal(restarted.readAccepted().artifact_sha256,a.artifact_sha256);assert.equal(restarted.verifyConsistency().state,'CONSISTENT');});
+
+test('crash after atomic rename exposes complete new state and ledger on restart',()=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gm-sk-')),store=new AtomicSemanticStore(dir),a=artifact();store.commit(a);const input=binding();input.verified_evidence[0]={...input.verified_evidence[0],degree:'1°01′'};const b=artifact(input,{parentAcceptedArtifact:a,authorityEnvelope:{authority_id:'owner-update',write_scopes:['
+test('possible worlds distinguish robust and unstable',()=>{const p=partitionWorlds([{world_id:'a',start:'15:20',end:'15:30',claim_states:{x:'SUPPORTED',y:'SUPPORTED'}},{world_id:'b',start:'15:30',end:'15:40',claim_states:{x:'SUPPORTED',y:'REFUTED'}}]);assert.equal(p.robustness.x,'ROBUST');assert.equal(p.robustness.y,'UNSTABLE');});
+
+
+test('snapshot confluence ignores verified evidence ordering',()=>{
+  const aInput=binding(),bInput=binding();
+  bInput.verified_evidence.reverse();
+  assert.equal(artifact(aInput).artifact_sha256,artifact(bInput).artifact_sha256);
+});
+
+test('noninterference ignores transport request identity and source-ref wording',()=>{
+  const aInput=binding(),bInput=binding();
+  bInput.request_id='another-request';
+  bInput.verified_evidence=bInput.verified_evidence.map((x)=>({...x,source_ref:'astro://different-transport/'+x.subject_id,semantic_value:'transport wording '+x.subject_id}));
+  assert.equal(artifact(aInput).artifact_sha256,artifact(bInput).artifact_sha256);
+});
+
+test('idempotent rebuild over accepted state returns same artifact and no new transition',()=>{
+  const a=artifact();
+  const b=artifact(binding(),{parentAcceptedArtifact:a,authorityEnvelope:{authority_id:'same-state',write_scopes:['$']}});
+  assert.equal(b.artifact_sha256,a.artifact_sha256);
+  assert.equal(b.transition.transition_id,a.transition.transition_id);
+});
+
+test('lineage policy does not count same roots as independent support',()=>{
+  const a=artifact();
+  const profile=a.defeasible_interpretation_state.claims.filter((x)=>x.section_id==='profilin');
+  assert.equal(profile.length,2);
+  assert.equal(independentSupportCount(a,profile.map((x)=>x.claim_state_id)),1);
+});
+
+test('unregistered migration fails closed',()=>{
+  const a=artifact();
+  assert.throws(()=>migrateArtifact(a,'gm.astroir.v2',{authority_id:'owner'}),/MIGRATION_NOT_REGISTERED/);
+});
+
+test('registered identity migration is explicit and provenance carrying',()=>{
+  const a=artifact();
+  const m=migrateArtifact(a,'gm.astroir.v1',{authority_id:'owner'});
+  assert.equal(m.artifact.artifact_sha256,a.artifact_sha256);
+  assert.match(m.evidence.migration_id,/^mig_[a-f0-9]{64}$/);
+});
+
+test('narrative boundary permits human synthesis and metaphor when claim anchored',()=>{
+  const a=artifact(),n=narrative(a);
+  const claim=a.defeasible_interpretation_state.claims.find((x)=>x.section_id==='profilin');
+  n.sections[0].paragraphs[0]={
+    text:'Güneş, Ay ve Yükselen aynı masada oturuyor gibi: kimlik, duygu ve dış tavır birbirini ezmeden birlikte okunuyor.',
+    claim_refs:[claim.claim_state_id]
+  };
+  assert.match(validateNarrative(a,n).narrative_anchor_id,/^nar_/);
+});
+]}});assert.throws(()=>store.commit(b,{crashAfterRename:true}),/SIMULATED_CRASH_AFTER_ATOMIC_COMMIT/);const restarted=new AtomicSemanticStore(dir);assert.equal(restarted.readAccepted().artifact_sha256,b.artifact_sha256);assert.equal(restarted.readLedger().at(-1).transition_id,b.transition.transition_id);assert.equal(restarted.verifyConsistency().state,'CONSISTENT');});
+test('possible worlds distinguish robust and unstable',()=>{const p=partitionWorlds([{world_id:'a',start:'15:20',end:'15:30',claim_states:{x:'SUPPORTED',y:'SUPPORTED'}},{world_id:'b',start:'15:30',end:'15:40',claim_states:{x:'SUPPORTED',y:'REFUTED'}}]);assert.equal(p.robustness.x,'ROBUST');assert.equal(p.robustness.y,'UNSTABLE');});
+
+
+test('snapshot confluence ignores verified evidence ordering',()=>{
+  const aInput=binding(),bInput=binding();
+  bInput.verified_evidence.reverse();
+  assert.equal(artifact(aInput).artifact_sha256,artifact(bInput).artifact_sha256);
+});
+
+test('noninterference ignores transport request identity and source-ref wording',()=>{
+  const aInput=binding(),bInput=binding();
+  bInput.request_id='another-request';
+  bInput.verified_evidence=bInput.verified_evidence.map((x)=>({...x,source_ref:'astro://different-transport/'+x.subject_id,semantic_value:'transport wording '+x.subject_id}));
+  assert.equal(artifact(aInput).artifact_sha256,artifact(bInput).artifact_sha256);
+});
+
+test('idempotent rebuild over accepted state returns same artifact and no new transition',()=>{
+  const a=artifact();
+  const b=artifact(binding(),{parentAcceptedArtifact:a,authorityEnvelope:{authority_id:'same-state',write_scopes:['$']}});
+  assert.equal(b.artifact_sha256,a.artifact_sha256);
+  assert.equal(b.transition.transition_id,a.transition.transition_id);
+});
+
+test('lineage policy does not count same roots as independent support',()=>{
+  const a=artifact();
+  const profile=a.defeasible_interpretation_state.claims.filter((x)=>x.section_id==='profilin');
+  assert.equal(profile.length,2);
+  assert.equal(independentSupportCount(a,profile.map((x)=>x.claim_state_id)),1);
+});
+
+test('unregistered migration fails closed',()=>{
+  const a=artifact();
+  assert.throws(()=>migrateArtifact(a,'gm.astroir.v2',{authority_id:'owner'}),/MIGRATION_NOT_REGISTERED/);
+});
+
+test('registered identity migration is explicit and provenance carrying',()=>{
+  const a=artifact();
+  const m=migrateArtifact(a,'gm.astroir.v1',{authority_id:'owner'});
+  assert.equal(m.artifact.artifact_sha256,a.artifact_sha256);
+  assert.match(m.evidence.migration_id,/^mig_[a-f0-9]{64}$/);
+});
+
+test('narrative boundary permits human synthesis and metaphor when claim anchored',()=>{
+  const a=artifact(),n=narrative(a);
+  const claim=a.defeasible_interpretation_state.claims.find((x)=>x.section_id==='profilin');
+  n.sections[0].paragraphs[0]={
+    text:'Güneş, Ay ve Yükselen aynı masada oturuyor gibi: kimlik, duygu ve dış tavır birbirini ezmeden birlikte okunuyor.',
+    claim_refs:[claim.claim_state_id]
+  };
+  assert.match(validateNarrative(a,n).narrative_anchor_id,/^nar_/);
+});
+]}});assert.equal(a.semantic_artifact_id,b.semantic_artifact_id);assert.equal(a.build_id,b.build_id);assert.notEqual(a.transition.transition_id,b.transition.transition_id);assert.notEqual(a.artifact_sha256,b.artifact_sha256);assert.ok(sameSemanticSnapshot(a,b));});
+
+test('idempotent rebuild over accepted state returns same artifact and no new transition',()=>{
+  const a=artifact();
+  const b=artifact(binding(),{parentAcceptedArtifact:a,authorityEnvelope:{authority_id:'same-state',write_scopes:['$']}});
+  assert.equal(b.artifact_sha256,a.artifact_sha256);
+  assert.equal(b.transition.transition_id,a.transition.transition_id);
+});
+
+test('lineage policy does not count same roots as independent support',()=>{
+  const a=artifact();
+  const profile=a.defeasible_interpretation_state.claims.filter((x)=>x.section_id==='profilin');
+  assert.equal(profile.length,2);
+  assert.equal(independentSupportCount(a,profile.map((x)=>x.claim_state_id)),1);
+});
+
+test('unregistered migration fails closed',()=>{
+  const a=artifact();
+  assert.throws(()=>migrateArtifact(a,'gm.astroir.v2',{authority_id:'owner'}),/MIGRATION_NOT_REGISTERED/);
+});
+
+test('registered identity migration is explicit and provenance carrying',()=>{
+  const a=artifact();
+  const m=migrateArtifact(a,'gm.astroir.v1',{authority_id:'owner'});
+  assert.equal(m.artifact.artifact_sha256,a.artifact_sha256);
+  assert.match(m.evidence.migration_id,/^mig_[a-f0-9]{64}$/);
+});
+
+test('narrative boundary permits human synthesis and metaphor when claim anchored',()=>{
+  const a=artifact(),n=narrative(a);
+  const claim=a.defeasible_interpretation_state.claims.find((x)=>x.section_id==='profilin');
+  n.sections[0].paragraphs[0]={
+    text:'Güneş, Ay ve Yükselen aynı masada oturuyor gibi: kimlik, duygu ve dış tavır birbirini ezmeden birlikte okunuyor.',
+    claim_refs:[claim.claim_state_id]
+  };
+  assert.match(validateNarrative(a,n).narrative_anchor_id,/^nar_/);
+});
+]}});assert.throws(()=>store.commit(b,{crashBeforeRename:true}),/SIMULATED_CRASH/);const restarted=new AtomicSemanticStore(dir);assert.equal(restarted.readAccepted().artifact_sha256,a.artifact_sha256);assert.equal(restarted.verifyConsistency().state,'CONSISTENT');});
+
+test('crash after atomic rename exposes complete new state and ledger on restart',()=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gm-sk-')),store=new AtomicSemanticStore(dir),a=artifact();store.commit(a);const input=binding();input.verified_evidence[0]={...input.verified_evidence[0],degree:'1°01′'};const b=artifact(input,{parentAcceptedArtifact:a,authorityEnvelope:{authority_id:'owner-update',write_scopes:['
+test('possible worlds distinguish robust and unstable',()=>{const p=partitionWorlds([{world_id:'a',start:'15:20',end:'15:30',claim_states:{x:'SUPPORTED',y:'SUPPORTED'}},{world_id:'b',start:'15:30',end:'15:40',claim_states:{x:'SUPPORTED',y:'REFUTED'}}]);assert.equal(p.robustness.x,'ROBUST');assert.equal(p.robustness.y,'UNSTABLE');});
+
+
+test('snapshot confluence ignores verified evidence ordering',()=>{
+  const aInput=binding(),bInput=binding();
+  bInput.verified_evidence.reverse();
+  assert.equal(artifact(aInput).artifact_sha256,artifact(bInput).artifact_sha256);
+});
+
+test('noninterference ignores transport request identity and source-ref wording',()=>{
+  const aInput=binding(),bInput=binding();
+  bInput.request_id='another-request';
+  bInput.verified_evidence=bInput.verified_evidence.map((x)=>({...x,source_ref:'astro://different-transport/'+x.subject_id,semantic_value:'transport wording '+x.subject_id}));
+  assert.equal(artifact(aInput).artifact_sha256,artifact(bInput).artifact_sha256);
+});
+
+test('idempotent rebuild over accepted state returns same artifact and no new transition',()=>{
+  const a=artifact();
+  const b=artifact(binding(),{parentAcceptedArtifact:a,authorityEnvelope:{authority_id:'same-state',write_scopes:['$']}});
+  assert.equal(b.artifact_sha256,a.artifact_sha256);
+  assert.equal(b.transition.transition_id,a.transition.transition_id);
+});
+
+test('lineage policy does not count same roots as independent support',()=>{
+  const a=artifact();
+  const profile=a.defeasible_interpretation_state.claims.filter((x)=>x.section_id==='profilin');
+  assert.equal(profile.length,2);
+  assert.equal(independentSupportCount(a,profile.map((x)=>x.claim_state_id)),1);
+});
+
+test('unregistered migration fails closed',()=>{
+  const a=artifact();
+  assert.throws(()=>migrateArtifact(a,'gm.astroir.v2',{authority_id:'owner'}),/MIGRATION_NOT_REGISTERED/);
+});
+
+test('registered identity migration is explicit and provenance carrying',()=>{
+  const a=artifact();
+  const m=migrateArtifact(a,'gm.astroir.v1',{authority_id:'owner'});
+  assert.equal(m.artifact.artifact_sha256,a.artifact_sha256);
+  assert.match(m.evidence.migration_id,/^mig_[a-f0-9]{64}$/);
+});
+
+test('narrative boundary permits human synthesis and metaphor when claim anchored',()=>{
+  const a=artifact(),n=narrative(a);
+  const claim=a.defeasible_interpretation_state.claims.find((x)=>x.section_id==='profilin');
+  n.sections[0].paragraphs[0]={
+    text:'Güneş, Ay ve Yükselen aynı masada oturuyor gibi: kimlik, duygu ve dış tavır birbirini ezmeden birlikte okunuyor.',
+    claim_refs:[claim.claim_state_id]
+  };
+  assert.match(validateNarrative(a,n).narrative_anchor_id,/^nar_/);
+});
+]}});assert.throws(()=>store.commit(b,{crashAfterRename:true}),/SIMULATED_CRASH_AFTER_ATOMIC_COMMIT/);const restarted=new AtomicSemanticStore(dir);assert.equal(restarted.readAccepted().artifact_sha256,b.artifact_sha256);assert.equal(restarted.readLedger().at(-1).transition_id,b.transition.transition_id);assert.equal(restarted.verifyConsistency().state,'CONSISTENT');});
 test('possible worlds distinguish robust and unstable',()=>{const p=partitionWorlds([{world_id:'a',start:'15:20',end:'15:30',claim_states:{x:'SUPPORTED',y:'SUPPORTED'}},{world_id:'b',start:'15:30',end:'15:40',claim_states:{x:'SUPPORTED',y:'REFUTED'}}]);assert.equal(p.robustness.x,'ROBUST');assert.equal(p.robustness.y,'UNSTABLE');});
 
 
