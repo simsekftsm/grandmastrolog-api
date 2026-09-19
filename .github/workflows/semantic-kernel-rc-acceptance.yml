@@ -42,6 +42,21 @@ jobs:
       - name: Install root dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Report installed semantic dependency versions
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const names=['cors','dotenv','express','groq-sdk','helmet','pg','swisseph','luxon'];
+          const out={};
+          for(const name of names){
+            let file=require.resolve(name+'/package.json');
+            out[name]=JSON.parse(fs.readFileSync(file,'utf8')).version;
+          }
+          console.log('ROOT_DEPENDENCY_VERSIONS='+JSON.stringify(out));
+          console.log('NODE_RUNTIME='+JSON.stringify({node:process.version,tz:process.versions.tz,icu:process.versions.icu}));
+          NODE
+
       - name: Anti self certification physical source binding
         shell: bash
         run: |
