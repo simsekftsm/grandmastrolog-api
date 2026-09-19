@@ -35,6 +35,18 @@ function canonicalDependencyLock(semanticDependencies, localDependencies = {}) {
   return freezeDeep({ lock, dependency_lock_id: `dep_${sha256(lock)}` });
 }
 
+function canonicalizeBindingInput(bindingInput) {
+  const evidence = (Array.isArray(bindingInput?.verified_evidence) ? bindingInput.verified_evidence : []).map((x)=>({
+    evidence_id:x.evidence_id,kind:x.kind,subject_id:x.subject_id,sign:x.sign,degree:x.degree,house:x.house,
+    retrograde:Boolean(x.retrograde),verification_state:x.verification_state
+  })).sort((a,b)=>String(a.evidence_id).localeCompare(String(b.evidence_id)));
+  return freezeDeep({
+    semantic_input:String(bindingInput?.semantic_input || ''),
+    availability:{...(bindingInput?.availability || {})},
+    verified_evidence:evidence
+  });
+}
+
 function evidenceIndex(bindingInput) {
   const evidence = Array.isArray(bindingInput?.verified_evidence) ? bindingInput.verified_evidence : [];
   const map = new Map();
@@ -65,11 +77,11 @@ function makeObservedState(bindingInput) {
   assertCapability('observed_state','observed_calculated_state');
   const map = evidenceIndex(bindingInput);
   const placements = [...map.values()].filter((x) => x.kind === 'placement').map((x) => ({
-    evidence_id:x.evidence_id, source_ref:x.source_ref, subject_id:x.subject_id, sign:x.sign, degree:x.degree,
+    evidence_id:x.evidence_id, subject_id:x.subject_id, sign:x.sign, degree:x.degree,
     house:x.house, retrograde:Boolean(x.retrograde), epistemic_status:'ASTRONOMICAL_CALCULATED_FACT'
   })).sort((a,b)=>a.subject_id.localeCompare(b.subject_id));
   return freezeDeep({
-    evidence_catalog_sha256: sha256([...map.values()].sort((a,b)=>a.evidence_id.localeCompare(b.evidence_id))),
+    evidence_catalog_sha256: sha256(canonicalizeBindingInput(bindingInput).verified_evidence),
     placements,
     evidence_ids:[...map.keys()].sort()
   });
@@ -134,8 +146,158 @@ function authorizeDelta(delta,envelope){
   const scopes=Array.isArray(envelope?.write_scopes)?envelope.write_scopes:[];
   if(!scopes.length) fail('AUTHORITY_ENVELOPE_REQUIRED');
   for(const item of delta){
-    if(item.path==='$') continue;
-    if(!scopes.some((scope)=>item.path===scope||item.path.startsWith(`${scope}.`))) fail('UNAUTHORIZED_SEMANTIC_DELTA',item.path,item.path);
+    if(item.path==='
+}
+function transitionId(parentIdentity,envelope,delta,candidateCore){
+  return `tx_${sha256({parent:parentIdentity||'GENESIS',authority:envelope,delta,resulting_semantic_sha256:sha256(candidateCore)})}`;
+}
+
+function buildFrozenNatalArtifact({bindingInput,semanticDependencies,localDependencies={},parentAcceptedArtifact=null,authorityEnvelope=null}){
+  if(!bindingInput||typeof bindingInput!=='object') fail('CANONICAL_INPUT_REQUIRED');
+  const lock=canonicalDependencyLock(semanticDependencies,localDependencies);
+  const canonicalInputSha=sha256({binding_input:canonicalizeBindingInput(bindingInput),dependency_lock_id:lock.dependency_lock_id});
+  const observed=makeObservedState(bindingInput);
+  const derived=deriveClaims(bindingInput);
+  const graph=buildGraph(derived.deterministic_derivation_state,derived.defeasible_interpretation_state);
+  const buildId=`build_${sha256({canonical_input_sha256:canonicalInputSha,dependency_lock_id:lock.dependency_lock_id,kernel_id:KERNEL_ID,doctrine_pack_id:doctrinePack.pack_id,schema_id:SCHEMA_ID})}`;
+  const candidateCore={astroir_version:ASTROIR_VERSION,schema_id:SCHEMA_ID,kernel_id:KERNEL_ID,build_id:buildId,dependency_lock_id:lock.dependency_lock_id,canonical_input_sha256:canonicalInputSha,observed_calculated_state:observed,deterministic_derivation_state:derived.deterministic_derivation_state,defeasible_interpretation_state:derived.defeasible_interpretation_state,dependency_graph:graph};
+  const envelope=authorityEnvelope||{authority_id:'gm.semantic.genesis.v1',write_scopes:['$'],reason:'GENESIS_BUILD'};
+  const delta=semanticDiff(parentAcceptedArtifact,candidateCore);
+  authorizeDelta(delta,envelope);
+  if(parentAcceptedArtifact && delta.length===0) return parentAcceptedArtifact;
+  const parentIdentity=parentAcceptedArtifact?.artifact_sha256||null;
+  const tid=transitionId(parentIdentity,envelope,delta,candidateCore);
+  const transition={transition_id:tid,parent_accepted_artifact:parentIdentity,authorized_change_set:envelope.write_scopes,authority:envelope.authority_id,candidate_delta:delta,accepted_semantic_delta:delta,acceptance_policy:'gm.semantic.transaction.v1',acceptance_evidence:{capability_contracts_sha256:sha256(PASS_CONTRACTS),provenance_complete:true},resulting_artifact_semantic_sha256:sha256(candidateCore)};
+  const preHash={...candidateCore,transition,frozen:true};
+  return freezeDeep({...preHash,artifact_sha256:sha256(preHash)});
+}
+function verifyFrozenArtifact(artifact){
+  if(!artifact||artifact.frozen!==true||artifact.astroir_version!==ASTROIR_VERSION) fail('SEMANTIC_FREEZE_REQUIRED');
+  const copy={...artifact};delete copy.artifact_sha256;
+  if(sha256(copy)!==artifact.artifact_sha256) fail('FROZEN_ARTIFACT_HASH_MISMATCH');
+  const claims=artifact.defeasible_interpretation_state?.claims;
+  if(!Array.isArray(claims)||!claims.length) fail('PROVENANCE_REQUIRED');
+  for(const c of claims) if(!c.provenance?.root_evidence_ids?.length||!c.derivation_id||!c.proposition_id||!c.claim_state_id) fail('PROVENANCE_REQUIRED');
+  return true;
+}
+function sameSemanticSnapshot(a,b){return a.artifact_sha256===b.artifact_sha256&&a.build_id===b.build_id;}
+function independentSupportCount(artifact,claimIds){
+  const ids=Array.isArray(claimIds)?claimIds:[];
+  const claims=artifact.defeasible_interpretation_state.claims.filter((c)=>ids.includes(c.claim_state_id));
+  return new Set(claims.map((c)=>c.provenance.lineage_id)).size;
+}
+
+module.exports={ASTROIR_VERSION,SCHEMA_ID,KERNEL_ID,REQUIRED_SECTIONS,SemanticKernelError,buildFrozenNatalArtifact,verifyFrozenArtifact,backwardSlice,forwardSlice,blameSlice,counterfactualSlice,semanticDiff,sameSemanticSnapshot,canonicalDependencyLock,canonicalizeBindingInput,independentSupportCount};
+ && !scopes.includes('
+}
+function transitionId(parentIdentity,envelope,delta,candidateCore){
+  return `tx_${sha256({parent:parentIdentity||'GENESIS',authority:envelope,delta,resulting_semantic_sha256:sha256(candidateCore)})}`;
+}
+
+function buildFrozenNatalArtifact({bindingInput,semanticDependencies,localDependencies={},parentAcceptedArtifact=null,authorityEnvelope=null}){
+  if(!bindingInput||typeof bindingInput!=='object') fail('CANONICAL_INPUT_REQUIRED');
+  const lock=canonicalDependencyLock(semanticDependencies,localDependencies);
+  const canonicalInputSha=sha256({binding_input:bindingInput,dependency_lock_id:lock.dependency_lock_id});
+  const observed=makeObservedState(bindingInput);
+  const derived=deriveClaims(bindingInput);
+  const graph=buildGraph(derived.deterministic_derivation_state,derived.defeasible_interpretation_state);
+  const buildId=`build_${sha256({canonical_input_sha256:canonicalInputSha,dependency_lock_id:lock.dependency_lock_id,kernel_id:KERNEL_ID,doctrine_pack_id:doctrinePack.pack_id,schema_id:SCHEMA_ID})}`;
+  const candidateCore={astroir_version:ASTROIR_VERSION,schema_id:SCHEMA_ID,kernel_id:KERNEL_ID,build_id:buildId,dependency_lock_id:lock.dependency_lock_id,canonical_input_sha256:canonicalInputSha,observed_calculated_state:observed,deterministic_derivation_state:derived.deterministic_derivation_state,defeasible_interpretation_state:derived.defeasible_interpretation_state,dependency_graph:graph};
+  const envelope=authorityEnvelope||{authority_id:'gm.semantic.genesis.v1',write_scopes:['$'],reason:'GENESIS_BUILD'};
+  const delta=semanticDiff(parentAcceptedArtifact,candidateCore);
+  authorizeDelta(delta,envelope);
+  const parentIdentity=parentAcceptedArtifact?.artifact_sha256||null;
+  const tid=transitionId(parentIdentity,envelope,delta,candidateCore);
+  const transition={transition_id:tid,parent_accepted_artifact:parentIdentity,authorized_change_set:envelope.write_scopes,authority:envelope.authority_id,candidate_delta:delta,accepted_semantic_delta:delta,acceptance_policy:'gm.semantic.transaction.v1',acceptance_evidence:{capability_contracts_sha256:sha256(PASS_CONTRACTS),provenance_complete:true},resulting_artifact_semantic_sha256:sha256(candidateCore)};
+  const preHash={...candidateCore,transition,frozen:true};
+  return freezeDeep({...preHash,artifact_sha256:sha256(preHash)});
+}
+function verifyFrozenArtifact(artifact){
+  if(!artifact||artifact.frozen!==true||artifact.astroir_version!==ASTROIR_VERSION) fail('SEMANTIC_FREEZE_REQUIRED');
+  const copy={...artifact};delete copy.artifact_sha256;
+  if(sha256(copy)!==artifact.artifact_sha256) fail('FROZEN_ARTIFACT_HASH_MISMATCH');
+  const claims=artifact.defeasible_interpretation_state?.claims;
+  if(!Array.isArray(claims)||!claims.length) fail('PROVENANCE_REQUIRED');
+  for(const c of claims) if(!c.provenance?.root_evidence_ids?.length||!c.derivation_id||!c.proposition_id||!c.claim_state_id) fail('PROVENANCE_REQUIRED');
+  return true;
+}
+function sameSemanticSnapshot(a,b){return a.artifact_sha256===b.artifact_sha256&&a.build_id===b.build_id;}
+
+module.exports={ASTROIR_VERSION,SCHEMA_ID,KERNEL_ID,REQUIRED_SECTIONS,SemanticKernelError,buildFrozenNatalArtifact,verifyFrozenArtifact,backwardSlice,forwardSlice,blameSlice,counterfactualSlice,semanticDiff,sameSemanticSnapshot,canonicalDependencyLock};
+)) fail('UNAUTHORIZED_SEMANTIC_DELTA',item.path,item.path);
+    if(item.path!=='
+}
+function transitionId(parentIdentity,envelope,delta,candidateCore){
+  return `tx_${sha256({parent:parentIdentity||'GENESIS',authority:envelope,delta,resulting_semantic_sha256:sha256(candidateCore)})}`;
+}
+
+function buildFrozenNatalArtifact({bindingInput,semanticDependencies,localDependencies={},parentAcceptedArtifact=null,authorityEnvelope=null}){
+  if(!bindingInput||typeof bindingInput!=='object') fail('CANONICAL_INPUT_REQUIRED');
+  const lock=canonicalDependencyLock(semanticDependencies,localDependencies);
+  const canonicalInputSha=sha256({binding_input:bindingInput,dependency_lock_id:lock.dependency_lock_id});
+  const observed=makeObservedState(bindingInput);
+  const derived=deriveClaims(bindingInput);
+  const graph=buildGraph(derived.deterministic_derivation_state,derived.defeasible_interpretation_state);
+  const buildId=`build_${sha256({canonical_input_sha256:canonicalInputSha,dependency_lock_id:lock.dependency_lock_id,kernel_id:KERNEL_ID,doctrine_pack_id:doctrinePack.pack_id,schema_id:SCHEMA_ID})}`;
+  const candidateCore={astroir_version:ASTROIR_VERSION,schema_id:SCHEMA_ID,kernel_id:KERNEL_ID,build_id:buildId,dependency_lock_id:lock.dependency_lock_id,canonical_input_sha256:canonicalInputSha,observed_calculated_state:observed,deterministic_derivation_state:derived.deterministic_derivation_state,defeasible_interpretation_state:derived.defeasible_interpretation_state,dependency_graph:graph};
+  const envelope=authorityEnvelope||{authority_id:'gm.semantic.genesis.v1',write_scopes:['$'],reason:'GENESIS_BUILD'};
+  const delta=semanticDiff(parentAcceptedArtifact,candidateCore);
+  authorizeDelta(delta,envelope);
+  const parentIdentity=parentAcceptedArtifact?.artifact_sha256||null;
+  const tid=transitionId(parentIdentity,envelope,delta,candidateCore);
+  const transition={transition_id:tid,parent_accepted_artifact:parentIdentity,authorized_change_set:envelope.write_scopes,authority:envelope.authority_id,candidate_delta:delta,accepted_semantic_delta:delta,acceptance_policy:'gm.semantic.transaction.v1',acceptance_evidence:{capability_contracts_sha256:sha256(PASS_CONTRACTS),provenance_complete:true},resulting_artifact_semantic_sha256:sha256(candidateCore)};
+  const preHash={...candidateCore,transition,frozen:true};
+  return freezeDeep({...preHash,artifact_sha256:sha256(preHash)});
+}
+function verifyFrozenArtifact(artifact){
+  if(!artifact||artifact.frozen!==true||artifact.astroir_version!==ASTROIR_VERSION) fail('SEMANTIC_FREEZE_REQUIRED');
+  const copy={...artifact};delete copy.artifact_sha256;
+  if(sha256(copy)!==artifact.artifact_sha256) fail('FROZEN_ARTIFACT_HASH_MISMATCH');
+  const claims=artifact.defeasible_interpretation_state?.claims;
+  if(!Array.isArray(claims)||!claims.length) fail('PROVENANCE_REQUIRED');
+  for(const c of claims) if(!c.provenance?.root_evidence_ids?.length||!c.derivation_id||!c.proposition_id||!c.claim_state_id) fail('PROVENANCE_REQUIRED');
+  return true;
+}
+function sameSemanticSnapshot(a,b){return a.artifact_sha256===b.artifact_sha256&&a.build_id===b.build_id;}
+
+module.exports={ASTROIR_VERSION,SCHEMA_ID,KERNEL_ID,REQUIRED_SECTIONS,SemanticKernelError,buildFrozenNatalArtifact,verifyFrozenArtifact,backwardSlice,forwardSlice,blameSlice,counterfactualSlice,semanticDiff,sameSemanticSnapshot,canonicalDependencyLock};
+ && !scopes.some((scope)=>scope==='
+}
+function transitionId(parentIdentity,envelope,delta,candidateCore){
+  return `tx_${sha256({parent:parentIdentity||'GENESIS',authority:envelope,delta,resulting_semantic_sha256:sha256(candidateCore)})}`;
+}
+
+function buildFrozenNatalArtifact({bindingInput,semanticDependencies,localDependencies={},parentAcceptedArtifact=null,authorityEnvelope=null}){
+  if(!bindingInput||typeof bindingInput!=='object') fail('CANONICAL_INPUT_REQUIRED');
+  const lock=canonicalDependencyLock(semanticDependencies,localDependencies);
+  const canonicalInputSha=sha256({binding_input:bindingInput,dependency_lock_id:lock.dependency_lock_id});
+  const observed=makeObservedState(bindingInput);
+  const derived=deriveClaims(bindingInput);
+  const graph=buildGraph(derived.deterministic_derivation_state,derived.defeasible_interpretation_state);
+  const buildId=`build_${sha256({canonical_input_sha256:canonicalInputSha,dependency_lock_id:lock.dependency_lock_id,kernel_id:KERNEL_ID,doctrine_pack_id:doctrinePack.pack_id,schema_id:SCHEMA_ID})}`;
+  const candidateCore={astroir_version:ASTROIR_VERSION,schema_id:SCHEMA_ID,kernel_id:KERNEL_ID,build_id:buildId,dependency_lock_id:lock.dependency_lock_id,canonical_input_sha256:canonicalInputSha,observed_calculated_state:observed,deterministic_derivation_state:derived.deterministic_derivation_state,defeasible_interpretation_state:derived.defeasible_interpretation_state,dependency_graph:graph};
+  const envelope=authorityEnvelope||{authority_id:'gm.semantic.genesis.v1',write_scopes:['$'],reason:'GENESIS_BUILD'};
+  const delta=semanticDiff(parentAcceptedArtifact,candidateCore);
+  authorizeDelta(delta,envelope);
+  const parentIdentity=parentAcceptedArtifact?.artifact_sha256||null;
+  const tid=transitionId(parentIdentity,envelope,delta,candidateCore);
+  const transition={transition_id:tid,parent_accepted_artifact:parentIdentity,authorized_change_set:envelope.write_scopes,authority:envelope.authority_id,candidate_delta:delta,accepted_semantic_delta:delta,acceptance_policy:'gm.semantic.transaction.v1',acceptance_evidence:{capability_contracts_sha256:sha256(PASS_CONTRACTS),provenance_complete:true},resulting_artifact_semantic_sha256:sha256(candidateCore)};
+  const preHash={...candidateCore,transition,frozen:true};
+  return freezeDeep({...preHash,artifact_sha256:sha256(preHash)});
+}
+function verifyFrozenArtifact(artifact){
+  if(!artifact||artifact.frozen!==true||artifact.astroir_version!==ASTROIR_VERSION) fail('SEMANTIC_FREEZE_REQUIRED');
+  const copy={...artifact};delete copy.artifact_sha256;
+  if(sha256(copy)!==artifact.artifact_sha256) fail('FROZEN_ARTIFACT_HASH_MISMATCH');
+  const claims=artifact.defeasible_interpretation_state?.claims;
+  if(!Array.isArray(claims)||!claims.length) fail('PROVENANCE_REQUIRED');
+  for(const c of claims) if(!c.provenance?.root_evidence_ids?.length||!c.derivation_id||!c.proposition_id||!c.claim_state_id) fail('PROVENANCE_REQUIRED');
+  return true;
+}
+function sameSemanticSnapshot(a,b){return a.artifact_sha256===b.artifact_sha256&&a.build_id===b.build_id;}
+
+module.exports={ASTROIR_VERSION,SCHEMA_ID,KERNEL_ID,REQUIRED_SECTIONS,SemanticKernelError,buildFrozenNatalArtifact,verifyFrozenArtifact,backwardSlice,forwardSlice,blameSlice,counterfactualSlice,semanticDiff,sameSemanticSnapshot,canonicalDependencyLock};
+||item.path===scope||item.path.startsWith(`${scope}.`))) fail('UNAUTHORIZED_SEMANTIC_DELTA',item.path,item.path);
   }
 }
 function transitionId(parentIdentity,envelope,delta,candidateCore){
