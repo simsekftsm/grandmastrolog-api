@@ -2,6 +2,7 @@
 
 const { sha256, freezeDeep } = require('./stable');
 const { verifyFrozenArtifact, REQUIRED_SECTIONS } = require('./kernel');
+const { assertCapability } = require('./pass-contracts');
 
 const FORBIDDEN_CAUSAL = /\b(çocukluk\s+travm|travman|travması|yüzünden|sebebiyle|neden olduğu için|geçmiş yaşam|kaderin gereği)\b/iu;
 const MARKDOWN_ESCAPE = /(^|\n)\s{0,3}(?:#{1,6}(?:\s|$)|>(?:\s|$)|[-+*]\s+|\d+[.)]\s+|---\s*(?:\n|$)|```|~~~)|\*\*|__|`|\]\s*\(|<\/?[A-Za-z][^>]*>/;
@@ -84,6 +85,7 @@ function paragraphAnchored(paragraph,claims){
 }
 
 function validateNarrative(artifact,narrative){
+  assertCapability('narrative','narrative');
   const {byId}=claimMaps(artifact);
   if(!narrative||typeof narrative!=='object'||Array.isArray(narrative)) fail('NARRATIVE_OBJECT_REQUIRED');
   if(!Array.isArray(narrative.sections)||narrative.sections.length!==REQUIRED_SECTIONS.length) fail('NARRATIVE_SECTION_SET_INVALID');
