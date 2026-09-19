@@ -177,16 +177,34 @@ function sha256Bytes(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
+function directoryDigest(root) {
+  const hash = createHash('sha256');
+  const visit = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a,b)=>a.name.localeCompare(b.name))) {
+      const full = path.join(dir, entry.name);
+      const rel = path.relative(root, full).replaceAll(path.sep, '/');
+      if (entry.isDirectory()) visit(full);
+      else if (entry.isFile()) {
+        hash.update(rel, 'utf8');
+        hash.update('\0');
+        hash.update(fs.readFileSync(full));
+        hash.update('\0');
+      }
+    }
+  };
+  visit(root);
+  return hash.digest('hex');
+}
+
 function packageIdentity(packageName) {
   const main = require.resolve(packageName);
   let dir = path.dirname(main);
   while (true) {
     const candidate = path.join(dir, 'package.json');
     if (fs.existsSync(candidate)) {
-      const bytes = fs.readFileSync(candidate);
-      const parsed = JSON.parse(bytes.toString('utf8'));
+      const parsed = JSON.parse(fs.readFileSync(candidate, 'utf8'));
       if (parsed.name === packageName) {
-        return { version: String(parsed.version || ''), sha256: sha256Bytes(bytes) };
+        return { version: String(parsed.version || ''), sha256: directoryDigest(dir) };
       }
     }
     const parent = path.dirname(dir);
@@ -203,7 +221,8 @@ export function buildSemanticDependencyEvidence() {
   const timezoneTuple = {
     tz: String(process.versions.tz || ''),
     icu: String(process.versions.icu || ''),
-    node: String(process.version || '')
+    node: String(process.version || ''),
+    node_binary_sha256: sha256Bytes(fs.readFileSync(process.execPath))
   };
   if (!timezoneTuple.tz || !timezoneTuple.icu) throw new Error('TIMEZONE_RUNTIME_IDENTITY_MISSING');
   const implementationSha = sha256Bytes(fs.readFileSync(MODULE_FILE));
