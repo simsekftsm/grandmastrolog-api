@@ -109,6 +109,13 @@ function validateNarrative(artifact,narrative){
   if(MARKDOWN_ESCAPE.test(seal.motto)||FORBIDDEN_CAUSAL.test(seal.motto)) fail('PERSONAL_SEAL_INVALID');
   const sealClaims=seal.claim_refs.map((id)=>byId.get(id));
   if(sealClaims.some((c)=>!c)) fail('CLAIM_NOT_FOUND');
+  const requiredSealRoots=new Set(
+    artifact.observed_calculated_state.placements
+      .filter((p)=>p.subject_id==='sun'||p.subject_id==='ascendant')
+      .map((p)=>p.evidence_id)
+  );
+  const sealRoots=new Set(sealClaims.flatMap((c)=>c.provenance.root_evidence_ids));
+  if([...requiredSealRoots].some((id)=>!sealRoots.has(id))) fail('PERSONAL_SEAL_EVIDENCE_SCOPE');
   if(!paragraphAnchored(seal.motto,sealClaims)) fail('CLAIM_ANCHOR_WEAK','personal_seal');
   anchors.push({narrative_sha256:sha256(seal.motto),section_id:'personal_seal',claim_state_ids:[...seal.claim_refs].sort()});
   return freezeDeep({narrative_anchor_id:`nar_${sha256(anchors)}`,anchors});
