@@ -1,6 +1,8 @@
 name: Semantic Kernel RC Acceptance
 
 on:
+  push:
+    branches: ['semantic-kernel-rc']
   pull_request:
     paths:
       - 'delivery_runtime/semantic_kernel/**'
