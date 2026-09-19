@@ -133,7 +133,7 @@ test('unauthorized semantic delta fails closed', () => {
   assert.throws(
     () => artifact(input, {
       parentAcceptedArtifact: parent,
-      authorityEnvelope:{authority_id:'narrow',write_scopes:['$.defeasible_interpretation_state']}
+      authorityEnvelope:{authority_id:'gm.semantic.context-revision.v1',write_scopes:['$.defeasible_interpretation_state']}
     }),
     (e) => e instanceof SemanticKernelError && e.code === 'UNAUTHORIZED_SEMANTIC_DELTA'
   );
@@ -168,7 +168,7 @@ test('crash before atomic rename preserves accepted state after restart', () => 
   input.verified_evidence[0] = {...input.verified_evidence[0], degree:'1°01′'};
   const b = artifact(input, {
     parentAcceptedArtifact:a,
-    authorityEnvelope:{authority_id:'owner-update',write_scopes:['$']}
+    authorityEnvelope:{authority_id:'gm.semantic.owner-revision.v1',write_scopes:['$']}
   });
 
   assert.throws(() => store.commit(b, {crashBeforeRename:true}), /SIMULATED_CRASH_BEFORE_COMMIT/);
@@ -188,7 +188,7 @@ test('crash after atomic rename exposes complete new state and ledger on restart
   input.verified_evidence[0] = {...input.verified_evidence[0], degree:'1°01′'};
   const b = artifact(input, {
     parentAcceptedArtifact:a,
-    authorityEnvelope:{authority_id:'owner-update',write_scopes:['$']}
+    authorityEnvelope:{authority_id:'gm.semantic.owner-revision.v1',write_scopes:['$']}
   });
 
   assert.throws(() => store.commit(b, {crashAfterRename:true}), /SIMULATED_CRASH_AFTER_ATOMIC_COMMIT/);
@@ -202,7 +202,7 @@ test('transition parent mismatch cannot commit', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gm-sk-'));
   const store = new AtomicSemanticStore(dir);
   store.commit(artifact());
-  const unrelated = artifact(binding(), {authorityEnvelope:{authority_id:'other-genesis',write_scopes:['$']}});
+  const unrelated = artifact(binding(), {authorityEnvelope:{authority_id:'gm.semantic.replay.v1',write_scopes:['$']}});
   assert.throws(() => store.commit(unrelated), /TRANSITION_PARENT_MISMATCH/);
 });
 
@@ -242,8 +242,8 @@ test('noninterference ignores transport request identity and source-ref wording'
 });
 
 test('semantic identity is independent from transition identity', () => {
-  const a = artifact(binding(), {authorityEnvelope:{authority_id:'authority-a',write_scopes:['$']}});
-  const b = artifact(binding(), {authorityEnvelope:{authority_id:'authority-b',write_scopes:['$']}});
+  const a = artifact(binding(), {authorityEnvelope:{authority_id:'gm.semantic.genesis.v1',write_scopes:['$']}});
+  const b = artifact(binding(), {authorityEnvelope:{authority_id:'gm.semantic.replay.v1',write_scopes:['$']}});
   assert.equal(a.semantic_artifact_id, b.semantic_artifact_id);
   assert.equal(a.build_id, b.build_id);
   assert.notEqual(a.transition.transition_id, b.transition.transition_id);
@@ -251,11 +251,102 @@ test('semantic identity is independent from transition identity', () => {
   assert.ok(sameSemanticSnapshot(a, b));
 });
 
+test('untrusted authority cannot self-authorize a semantic transition', () => {
+  assert.throws(
+    () => artifact(binding(), {authorityEnvelope:{authority_id:'attacker-self-asserted',write_scopes:['
+  const a = artifact();
+  const b = artifact(binding(), {
+    parentAcceptedArtifact:a,
+    authorityEnvelope:{authority_id:'gm.semantic.owner-revision.v1',write_scopes:['$']}
+  });
+  assert.equal(b.artifact_sha256, a.artifact_sha256);
+  assert.equal(b.transition.transition_id, a.transition.transition_id);
+});
+
+test('same-root lineages do not count as independent confirmation', () => {
+  const a = artifact();
+  const profile = a.defeasible_interpretation_state.claims.filter((x) =>
+    x.provenance.rule_id === 'profile.triad.primary.v1' ||
+    x.provenance.rule_id === 'profile.triad.tension.v1'
+  );
+  assert.equal(profile.length, 2);
+  assert.equal(independentSupportCount(a, profile.map((x) => x.claim_state_id)), 1);
+});
+
+test('same proposition can retain multiple derivations under one claim identity', () => {
+  const base = doctrinePack.rules[0];
+  doctrinePack.rules.push({...base, rule_id:'test.duplicate.derivation.v1'});
+  try {
+    const a = artifact();
+    const claim = a.defeasible_interpretation_state.claims.find((x) =>
+      x.provenance.rule_ids?.includes(base.rule_id) &&
+      x.provenance.rule_ids?.includes('test.duplicate.derivation.v1')
+    );
+    assert.ok(claim);
+    assert.equal(claim.derivation_ids.length, 2);
+    assert.equal(independentSupportCount(a, [claim.claim_state_id]), 1);
+  } finally {
+    doctrinePack.rules.pop();
+  }
+});
+
+test('unregistered migration fails closed', () => {
+  const a = artifact();
+  assert.throws(() => migrateArtifact(a, 'gm.astroir.v2', {authority_id:'owner'}), /MIGRATION_NOT_REGISTERED/);
+});
+
+test('registered identity migration is explicit and provenance carrying', () => {
+  const a = artifact();
+  const m = migrateArtifact(a, 'gm.astroir.v1', {authority_id:'owner'});
+  assert.equal(m.artifact.artifact_sha256, a.artifact_sha256);
+  assert.match(m.evidence.migration_id, /^mig_[a-f0-9]{64}$/);
+});
+
+test('narrative boundary permits human synthesis and metaphor when claim anchored', () => {
+  const a = artifact(), n = narrative(a);
+  const claim = a.defeasible_interpretation_state.claims.find((x) => x.section_id === 'profilin');
+  n.sections[0].paragraphs[0] = {
+    text:'Güneş, Ay ve Yükselen aynı masada oturuyor gibi: kimlik, duygu ve dış tavır birbirini ezmeden birlikte okunuyor.',
+    claim_refs:[claim.claim_state_id]
+  };
+  assert.match(validateNarrative(a, n).narrative_anchor_id, /^nar_/);
+});
+
+test('doctrine semantics are frozen before narrative generation', () => {
+  const a = artifact();
+  const profile = a.defeasible_interpretation_state.claims.filter((x) => x.section_id === 'profilin');
+  assert.ok(profile.some((x) => /inisiyatif|doğrudanlık|özerklik/u.test(x.proposition)));
+  assert.ok(profile.some((x) => /benlik, görünüş, başlangıçlar/u.test(x.proposition)));
+});
+
+test('positive capability boundary rejects ungranted semantic namespace', () => {
+  assert.throws(() => assertCapability('observed_state','narrative'), /CAPABILITY_DENIED/);
+  assert.throws(() => assertCapability('observed_state','defeasible_interpretation_state'), /CAPABILITY_NOT_GRANTED/);
+});
+
+test('incremental rebuild planner distinguishes semantic change classes', () => {
+  assert.equal(planRebuild(['renderer']).mode, 'PATCH');
+  assert.equal(planRebuild(['doctrine_pack']).mode, 'PARTIAL_REBUILD');
+  assert.equal(planRebuild(['verified_evidence.sun']).from, 'observed_calculated_state');
+  assert.equal(planRebuild(['astroir_schema']).mode, 'FULL_SEMANTIC_REBUILD');
+});
+
+test('blame slice identifies changed proposition set', () => {
+  const a = artifact(), input = binding();
+  input.verified_evidence[0] = {...input.verified_evidence[0], sign:'Boğa'};
+  const b = artifact(input);
+  assert.ok(blameSlice(a, b).length > 0);
+});
+]}}),
+    (e) => e instanceof SemanticKernelError && e.code === 'AUTHORITY_NOT_TRUSTED'
+  );
+});
+
 test('idempotent rebuild over accepted state returns same artifact and no new transition', () => {
   const a = artifact();
   const b = artifact(binding(), {
     parentAcceptedArtifact:a,
-    authorityEnvelope:{authority_id:'same-state',write_scopes:['$']}
+    authorityEnvelope:{authority_id:'gm.semantic.owner-revision.v1',write_scopes:['$']}
   });
   assert.equal(b.artifact_sha256, a.artifact_sha256);
   assert.equal(b.transition.transition_id, a.transition.transition_id);
