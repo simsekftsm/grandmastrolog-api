@@ -116,7 +116,7 @@ jobs:
           mapfile -t CHANGED < <(git diff --name-only "$RUNTIME_SOURCE" HEAD)
           for f in "${CHANGED[@]}"; do
             case "$f" in
-              .github/m1a4-final-production-lock.json|.github/real-e2e-production-lock.json|.github/workflows/m1a4-final-delivery-live-acceptance.yml|.github/workflows/m1a1-delivery-runtime-live-acceptance.yml|.github/workflows/real-e2e-integration-acceptance.yml|.github/workflows/m1a5-postfix-successor-v2.yml|.github/workflows/m1a5-blocked-root-diagnostic.yml|m1a5_acceptance/corpus.normal-natal.v1.json|m1a5_acceptance/frozen-manifest.json|m1a5_acceptance/oracle-core.mjs|m1a5_acceptance/oracle-runner.mjs|m1a5_acceptance/rubric.semantic-quality.v1.json|m1a5_successor/calibration-delta.v1.json|m1a5_successor/oracle-runner.mjs) ;;
+              .github/m1a4-final-production-lock.json|.github/real-e2e-production-lock.json|delivery_runtime/README.md|.github/workflows/m1a4-final-delivery-live-acceptance.yml|.github/workflows/m1a1-delivery-runtime-live-acceptance.yml|.github/workflows/real-e2e-integration-acceptance.yml|.github/workflows/m1a5-postfix-successor-v2.yml|.github/workflows/m1a5-blocked-root-diagnostic.yml|m1a5_acceptance/corpus.normal-natal.v1.json|m1a5_acceptance/frozen-manifest.json|m1a5_acceptance/oracle-core.mjs|m1a5_acceptance/oracle-runner.mjs|m1a5_acceptance/rubric.semantic-quality.v1.json|m1a5_successor/calibration-delta.v1.json|m1a5_successor/oracle-runner.mjs) ;;
               *) echo "Unexpected post-deployment mutation: $f"; exit 1 ;;
             esac
           done
