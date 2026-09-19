@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { stableSerialize } = require('./trust-boundary');
 const { sourceProvenance } = require('./source-provenance');
+const { verifyFrozenArtifact } = require('../semantic_kernel/kernel');
 const {
   CONTRACT_VERSION,
   SCHEMA_ID,
@@ -160,6 +161,22 @@ function validateFinalDelivery(bindingInput, semanticPayload, options = {}) {
   const renderer = options.renderer || renderCanonicalNatal;
   const provenanceVerifier = options.provenanceVerifier || defaultProvenanceVerifier;
   const runtimeEnv = options.runtimeEnv || process.env;
+  const semanticArtifact = options.semanticArtifact || null;
+  const requireSemanticFreeze = options.requireSemanticFreeze === true;
+
+  let semanticBinding = null;
+  if (semanticArtifact) {
+    verifyFrozenArtifact(semanticArtifact);
+    semanticBinding = Object.freeze({
+      semantic_artifact_id: semanticArtifact.semantic_artifact_id,
+      frozen_artifact_sha256: semanticArtifact.artifact_sha256,
+      build_id: semanticArtifact.build_id,
+      transition_id: semanticArtifact.transition.transition_id,
+      dependency_lock_id: semanticArtifact.dependency_lock_id
+    });
+  } else if (requireSemanticFreeze) {
+    throw new DeliveryValidationError(422, 'SEMANTIC_FREEZE_BINDING_REQUIRED');
+  }
 
   const { evidenceMap, availability } = validateBindingInput(bindingInput);
   const envelope = makeValidatedEnvelope(semanticPayload, evidenceMap, availability);
@@ -190,6 +207,7 @@ function validateFinalDelivery(bindingInput, semanticPayload, options = {}) {
     DELIVERY_VALIDATOR_ID,
     contractSha256,
     first.canonical_markdown_sha256,
+    semanticBinding ? stableSerialize(semanticBinding) : 'legacy-no-semantic-freeze',
     sourceFingerprint,
     deploymentId
   ].join('\n'));
@@ -207,6 +225,7 @@ function validateFinalDelivery(bindingInput, semanticPayload, options = {}) {
     delivery_binding_sha256: bindingSha256,
     canonical_markdown: first.canonical_markdown,
     visual_attachments: first.visual_attachments,
+    semantic_binding: semanticBinding,
     provenance: Object.freeze({
       source_fingerprint: sourceFingerprint,
       deployment_id: deploymentId,
