@@ -221,10 +221,13 @@ export function buildSemanticDependencyEvidence() {
   const ephePath = path.resolve(process.cwd(), 'ephe/seas_18.se1');
   if (!fs.existsSync(ephePath)) throw new Error('EPHEMERIS_DATA_MISSING');
   const swissephPackage = packageIdentity('swisseph');
+  const luxonPackage = packageIdentity('luxon');
   const timezoneTuple = {
     tz: String(process.versions.tz || ''),
     icu: String(process.versions.icu || ''),
     node: String(process.version || ''),
+    luxon_version: luxonPackage.version,
+    luxon_sha256: luxonPackage.sha256,
     node_binary_sha256: sha256Bytes(fs.readFileSync(process.execPath))
   };
   if (!timezoneTuple.tz || !timezoneTuple.icu) throw new Error('TIMEZONE_RUNTIME_IDENTITY_MISSING');
@@ -232,7 +235,7 @@ export function buildSemanticDependencyEvidence() {
   SEMANTIC_DEPENDENCY_CACHE = Object.freeze({
     ephemeris_engine: { version: `swisseph@${swissephPackage.version}`, sha256: swissephPackage.sha256 },
     ephemeris_data: { version: 'seas_18.se1', sha256: sha256Bytes(fs.readFileSync(ephePath)) },
-    timezone_data: { version: `tz@${timezoneTuple.tz};icu@${timezoneTuple.icu};node@${timezoneTuple.node}`, sha256: sha256Bytes(Buffer.from(stableSerialize(timezoneTuple), 'utf8')) },
+    timezone_data: { version: `tz@${timezoneTuple.tz};icu@${timezoneTuple.icu};node@${timezoneTuple.node};luxon@${timezoneTuple.luxon_version}`, sha256: sha256Bytes(Buffer.from(stableSerialize(timezoneTuple), 'utf8')) },
     calculation_implementation: { version: EVIDENCE_ENGINE, sha256: implementationSha },
     coordinate_canonicalization: { version: `${EVIDENCE_ENGINE}:coordinates-v1`, sha256: implementationSha },
     house_calculation: { version: `${EVIDENCE_ENGINE}:placidus-v1`, sha256: implementationSha }
