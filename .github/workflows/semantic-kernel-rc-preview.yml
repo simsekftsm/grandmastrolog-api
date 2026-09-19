@@ -66,11 +66,12 @@ jobs:
         run: |
           set -euo pipefail
           for i in {1..20}; do
-            STATUS="$(curl -sS -o /tmp/health.json -w '%{http_code}' "$PREVIEW_URL/api/health" || true)"
-            [ "$STATUS" = 200 ] && break
+            if npx --yes vercel@latest curl /api/health --deployment "$PREVIEW_URL" --token="$VERCEL_TOKEN" -- --silent --show-error --fail-with-body > /tmp/health.json; then
+              break
+            fi
             sleep 3
           done
-          test "$STATUS" = 200
+          test -s /tmp/health.json
           node - <<'NODE'
           const fs=require('node:fs');
           const x=JSON.parse(fs.readFileSync('/tmp/health.json','utf8'));
@@ -100,11 +101,11 @@ jobs:
           NODE
           TS="$(node -p "require('/tmp/seal.json').timestamp")"
           SIG="$(node -p "require('/tmp/seal.json').signature")"
-          STATUS="$(curl -sS -o /tmp/e2e-out.json -w '%{http_code}' -X POST "$PREVIEW_URL/api/e2e-natal" \
-            -H 'content-type: application/json' -H "authorization: Bearer $GM_API_SECRET" \
-            -H 'x-gm-evidence-source: grandmastrolog-api' -H "x-gm-evidence-timestamp: $TS" \
-            -H "x-gm-evidence-signature: $SIG" --data-binary @/tmp/e2e.json)"
-          if [ "$STATUS" != 200 ]; then
+          if ! npx --yes vercel@latest curl /api/e2e-natal --deployment "$PREVIEW_URL" --token="$VERCEL_TOKEN" -- \
+            --silent --show-error --fail-with-body --request POST \
+            --header 'content-type: application/json' --header "authorization: Bearer $GM_API_SECRET" \
+            --header 'x-gm-evidence-source: grandmastrolog-api' --header "x-gm-evidence-timestamp: $TS" \
+            --header "x-gm-evidence-signature: $SIG" --data-binary @/tmp/e2e.json > /tmp/e2e-out.json; then
             node - <<'NODE'
           const fs=require('node:fs'); let x={}; try{x=JSON.parse(fs.readFileSync('/tmp/e2e-out.json','utf8'))}catch{}
           console.log('RC_E2E_DIAG '+JSON.stringify({code:x.code,upstream_status:x.upstream_status,provider:x.upstream_provider}));
