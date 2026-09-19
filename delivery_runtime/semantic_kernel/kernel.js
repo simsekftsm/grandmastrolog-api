@@ -96,7 +96,7 @@ function deriveClaims(bindingInput) {
   assertCapability('doctrine','deterministic_derivation_state');
   assertCapability('doctrine','defeasible_interpretation_state');
   const map = evidenceIndex(bindingInput);
-  const derivations = [], claims = [];
+  const derivations = [], claims = [], claimsById = new Map();
 
   const addClaim = ({ rule, roots, proposition, sectionId, status, robustness, salience }) => {
     if (!REQUIRED_SECTIONS.includes(sectionId)) fail('DOCTRINE_SCOPE_VIOLATION', sectionId);
@@ -110,11 +110,27 @@ function deriveClaims(bindingInput) {
       proposition_id:pid, parent_evidence_ids:[...roots].sort(), lineage_id:lid,
       epistemic_status:'DETERMINISTIC_DERIVATION'
     });
-    claims.push({
-      proposition_id:pid, claim_state_id:cid, derivation_id:did, section_id:sectionId,
-      proposition, status, robustness, salience, epistemic_status:'INTERPRETIVE_CLAIM',
-      provenance:{root_evidence_ids:[...roots].sort(), lineage_id:lid, rule_id:rule.rule_id}
-    });
+    const existing = claimsById.get(cid);
+    if (existing) {
+      existing.derivation_ids = [...new Set([...existing.derivation_ids, did])].sort();
+      existing.provenance.root_evidence_ids = [...new Set([...existing.provenance.root_evidence_ids, ...roots])].sort();
+      existing.provenance.lineage_ids = [...new Set([...existing.provenance.lineage_ids, lid])].sort();
+      existing.provenance.rule_ids = [...new Set([...existing.provenance.rule_ids, rule.rule_id])].sort();
+    } else {
+      const claim = {
+        proposition_id:pid, claim_state_id:cid, derivation_id:did, derivation_ids:[did], section_id:sectionId,
+        proposition, status, robustness, salience, epistemic_status:'INTERPRETIVE_CLAIM',
+        provenance:{
+          root_evidence_ids:[...roots].sort(),
+          lineage_id:lid,
+          lineage_ids:[lid],
+          rule_id:rule.rule_id,
+          rule_ids:[rule.rule_id]
+        }
+      };
+      claimsById.set(cid, claim);
+      claims.push(claim);
+    }
   };
 
   for (const rule of doctrinePack.rules) {
@@ -260,14 +276,14 @@ function verifyFrozenArtifact(artifact){
   if(artifact.transition?.resulting_semantic_artifact_id!==artifact.semantic_artifact_id) fail('TRANSITION_RESULT_IDENTITY_MISMATCH');
   const claims=artifact.defeasible_interpretation_state?.claims;
   if(!Array.isArray(claims)||!claims.length) fail('PROVENANCE_REQUIRED');
-  for(const c of claims) if(!c.provenance?.root_evidence_ids?.length||!c.derivation_id||!c.proposition_id||!c.claim_state_id) fail('PROVENANCE_REQUIRED');
+  for(const c of claims) if(!c.provenance?.root_evidence_ids?.length||!c.derivation_id||!c.derivation_ids?.length||!c.provenance?.lineage_ids?.length||!c.proposition_id||!c.claim_state_id) fail('PROVENANCE_REQUIRED');
   return true;
 }
 function sameSemanticSnapshot(a,b){return a.semantic_artifact_id===b.semantic_artifact_id&&a.build_id===b.build_id;}
 function independentSupportCount(artifact,claimIds){
   const ids=Array.isArray(claimIds)?claimIds:[];
   const claims=artifact.defeasible_interpretation_state.claims.filter((c)=>ids.includes(c.claim_state_id));
-  return new Set(claims.map((c)=>c.provenance.lineage_id)).size;
+  return new Set(claims.flatMap((c)=>c.provenance.lineage_ids || [c.provenance.lineage_id])).size;
 }
 
 module.exports={ASTROIR_VERSION,SCHEMA_ID,KERNEL_ID,REQUIRED_SECTIONS,SemanticKernelError,buildFrozenNatalArtifact,verifyFrozenArtifact,backwardSlice,forwardSlice,blameSlice,counterfactualSlice,semanticDiff,sameSemanticSnapshot,canonicalDependencyLock,canonicalizeBindingInput,independentSupportCount};
