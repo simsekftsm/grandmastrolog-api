@@ -1,0 +1,170 @@
+name: M1A-5 Groq Production Rollback Auto
+
+on:
+  push:
+    branches:
+      - m1a5-root-repair-runtime-4608
+    paths:
+      - '.github/workflows/m1a5-groq-production-rollback-auto.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rollback-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GROQ_RUNTIME_SHA: b5ee123cecdbe220a8db7957a64f881738c07b24
+      EXPECTED_SOURCE_FINGERPRINT: 0b7e1b7aa335918b795bc87de6a73f27ea4d6f6e8b8fc8ac50d2600d3f4f006c
+      BASE_URL: https://grandmastrolog-delivery-runtime.vercel.app
+      VERCEL_ORG_ID: team_x74ux30dPQwWNHy4a8wCkiMx
+      VERCEL_PROJECT_ID: prj_XhDus3tQsyiLxrPccbQteXLwbB2a
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+    steps:
+      - name: Checkout rollback controller
+        uses: actions/checkout@v5
+        with:
+          ref: m1a5-root-repair-runtime-4608
+          fetch-depth: 0
+
+      - name: Freeze rollback target and credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}" || { echo "BLOCKED:VERCEL_TOKEN_MISSING"; exit 2; }
+          test -n "${GM_API_SECRET:-}" || { echo "BLOCKED:GM_API_SECRET_MISSING"; exit 2; }
+          test -n "${GROQ_API_KEY:-}" || { echo "BLOCKED:GROQ_API_KEY_MISSING"; exit 2; }
+          git cat-file -e "$GROQ_RUNTIME_SHA^{commit}"
+          git checkout --detach "$GROQ_RUNTIME_SHA"
+          test "$(node -e "process.stdout.write(require('./delivery_runtime/lib/source-provenance').sourceProvenance().fingerprint)")" = "$EXPECTED_SOURCE_FINGERPRINT"
+          echo "GROQ_ROLLBACK_TARGET=PASS"
+
+      - name: Install dependencies and run exact Groq runtime regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          node --test delivery_runtime/tests/*.test.js
+          node --test integration_tests/natal-evidence.test.mjs integration_tests/e2e-runtime.test.mjs
+          echo "GROQ_RUNTIME_REGRESSION=PASS"
+
+      - name: Install and link Vercel CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global vercel@latest
+          cd delivery_runtime
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          python3 - <<'PY'
+          import json
+          x=json.load(open('.vercel/project.json'))
+          assert x['projectId']=='prj_XhDus3tQsyiLxrPccbQteXLwbB2a',x
+          assert x['orgId']=='team_x74ux30dPQwWNHy4a8wCkiMx',x
+          print('VERCEL_PROJECT_BINDING=PASS')
+          PY
+
+      - name: Restore Groq production secrets without breaking current Gemini deployment
+        working-directory: delivery_runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          upsert_sensitive() {
+            local key="$1" value="$2"
+            vercel env rm "$key" production --yes --token="$VERCEL_TOKEN" >/dev/null 2>&1 || true
+            printf '%s' "$value" | vercel env add "$key" production --sensitive --token="$VERCEL_TOKEN" >/dev/null
+          }
+          upsert_plain() {
+            local key="$1" value="$2"
+            vercel env rm "$key" production --yes --token="$VERCEL_TOKEN" >/dev/null 2>&1 || true
+            printf '%s' "$value" | vercel env add "$key" production --token="$VERCEL_TOKEN" >/dev/null
+          }
+          upsert_sensitive GROQ_API_KEY "$GROQ_API_KEY"
+          upsert_sensitive GM_API_SECRET "$GM_API_SECRET"
+          upsert_plain GROQ_MODEL "openai/gpt-oss-120b"
+          upsert_plain GM_FINAL_DELIVERY_AUTHORIZED "true"
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN" >/dev/null
+          echo "GROQ_PRODUCTION_ENV_READY=PASS"
+
+      - name: Build and deploy exact accepted Groq runtime
+        working-directory: delivery_runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          vercel build --prod --token="$VERCEL_TOKEN"
+          test -d .vercel/output
+          URL="$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN" | tail -1 | tr -d '\r')"
+          test -n "$URL"
+          echo "VERCEL_DEPLOY_URL=$URL"
+
+      - name: Verify production provenance and Groq live path
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 36); do
+            if curl -fsS "$BASE_URL/api/health" -o /tmp/health.json; then
+              if python3 - <<'PY'
+          import json,os
+          x=json.load(open('/tmp/health.json',encoding='utf-8'))
+          p=x.get('source_provenance') or {}
+          d=x.get('deployment_provenance') or {}
+          ok=(p.get('fingerprint')==os.environ['EXPECTED_SOURCE_FINGERPRINT']
+              and d.get('project_id')==os.environ['VERCEL_PROJECT_ID']
+              and d.get('environment')=='production')
+          raise SystemExit(0 if ok else 1)
+          PY
+              then break; fi
+            fi
+            test "$i" != "36"
+            sleep 5
+          done
+
+          node <<'NODE'
+          const { signTrustedRequest } = require('./delivery_runtime/lib/trust-boundary.js');
+          const { availability, bindingInput } = require('./delivery_runtime/tests/helpers.js');
+          const body = { binding_input: bindingInput(availability()) };
+          const seal = signTrustedRequest({
+            secret: process.env.GM_API_SECRET,
+            routeId: 'e2e-natal',
+            body
+          });
+          (async()=>{
+            const r = await fetch(process.env.BASE_URL + '/api/e2e-natal', {
+              method:'POST',
+              headers:{
+                'content-type':'application/json',
+                authorization:'Bearer '+process.env.GM_API_SECRET,
+                'x-gm-evidence-source':seal.source,
+                'x-gm-evidence-timestamp':String(seal.timestamp),
+                'x-gm-evidence-signature':seal.signature
+              },
+              body:JSON.stringify(body),
+              signal:AbortSignal.timeout(120000)
+            });
+            let j={}; try{j=await r.json()}catch{}
+            console.log('LIVE_HTTP='+r.status);
+            console.log('LIVE_PROVIDER='+String(j.provider||''));
+            console.log('LIVE_MODEL='+String(j.model||''));
+            if(r.status===429 || j.upstream_status===429){
+              console.error('BLOCKED:GROQ_DAILY_QUOTA');
+              process.exit(2);
+            }
+            if(!r.ok) {
+              console.error('FAIL:LIVE_GROQ_REQUEST '+JSON.stringify({status:r.status,code:j.code,upstream_status:j.upstream_status}));
+              process.exit(1);
+            }
+            if(j.provider!=='groq' || j.model!=='openai/gpt-oss-120b') {
+              console.error('FAIL:GROQ_PROVIDER_MODEL_MISMATCH');
+              process.exit(1);
+            }
+            if(j?.delivery?.delivery_state!=='final_delivery_validated') {
+              console.error('FAIL:FINAL_DELIVERY_NOT_VALIDATED');
+              process.exit(1);
+            }
+            console.log('GROQ_PRODUCTION_LIVE=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
