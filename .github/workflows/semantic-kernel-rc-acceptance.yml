@@ -8,7 +8,7 @@ on:
       - 'delivery_runtime/semantic_kernel/**'
       - 'delivery_runtime/contracts/gm-astroir-v1.schema.json'
       - 'delivery_runtime/api/e2e-natal.js'
-      - 'delivery_runtime/lib/groq-binding.js'
+      - 'delivery_runtime/lib/**'
       - 'gm_integration/**'
       - 'integration-server.js'
       - '.github/workflows/semantic-kernel-rc-acceptance.yml'
@@ -23,26 +23,86 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
+
+      - name: Syntax gates before execution
+        run: |
+          set -euo pipefail
+          node --check delivery_runtime/semantic_kernel/stable.js
+          node --check delivery_runtime/semantic_kernel/pass-contracts.js
+          node --check delivery_runtime/semantic_kernel/kernel.js
+          node --check delivery_runtime/semantic_kernel/dependency-runtime.js
+          node --check delivery_runtime/semantic_kernel/narrative-boundary.js
+          node --check delivery_runtime/semantic_kernel/uncertainty.js
+          node --check delivery_runtime/semantic_kernel/migration.js
+          node --check delivery_runtime/semantic_kernel/transaction-store.js
+          node --check delivery_runtime/api/e2e-natal.js
+          node --check integration-server.js
+          node --check gm_integration/natal-evidence.js
+
       - name: Install root dependencies
         run: npm install --no-audit --no-fund
+
+      - name: Anti self certification physical source binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const cp=require('node:child_process');
+          const crypto=require('node:crypto');
+          const {sourceProvenance}=require('./delivery_runtime/lib/source-provenance');
+          const p=sourceProvenance();
+          const mandatory=[
+            'delivery_runtime/api/e2e-natal.js',
+            'delivery_runtime/contracts/gm-astroir-v1.schema.json',
+            'delivery_runtime/lib/delivery-validator.js',
+            'delivery_runtime/lib/groq-binding.js',
+            'delivery_runtime/lib/natal-contract.js',
+            'delivery_runtime/lib/natal-renderer.js',
+            'delivery_runtime/lib/trust-boundary.js',
+            'delivery_runtime/semantic_kernel/stable.js',
+            'delivery_runtime/semantic_kernel/pass-contracts.js',
+            'delivery_runtime/semantic_kernel/kernel.js',
+            'delivery_runtime/semantic_kernel/dependency-runtime.js',
+            'delivery_runtime/semantic_kernel/narrative-boundary.js',
+            'delivery_runtime/semantic_kernel/uncertainty.js',
+            'delivery_runtime/semantic_kernel/migration.js',
+            'delivery_runtime/semantic_kernel/transaction-store.js',
+            'delivery_runtime/semantic_kernel/doctrine/natal-core.v1.json',
+            'delivery_runtime/vercel.json'
+          ];
+          for(const file of mandatory) {
+            if(!Object.prototype.hasOwnProperty.call(p.files,file)) throw new Error('PROVENANCE_COVERAGE_MISSING:'+file);
+          }
+          const actual={};
+          for(const file of Object.keys(p.files)) {
+            actual[file]=cp.execFileSync('git',['hash-object',file],{encoding:'utf8'}).trim();
+            if(actual[file]!==p.files[file]) throw new Error('PHYSICAL_SOURCE_MISMATCH:'+file);
+          }
+          const canonical=Object.keys(actual).sort().map((file)=>file+'='+actual[file]+'\n').join('');
+          const fingerprint=crypto.createHash('sha256').update(canonical,'utf8').digest('hex');
+          if(fingerprint!==p.fingerprint) throw new Error('PHYSICAL_FINGERPRINT_MISMATCH');
+          process.stdout.write(JSON.stringify({verified_files:Object.keys(actual).length,fingerprint})+'\n');
+          NODE
+
       - name: Semantic kernel laws and adversarial acceptance
         run: node --test delivery_runtime/semantic_kernel/tests/*.test.js
+
       - name: Existing M1A delivery regression
         working-directory: delivery_runtime
         run: node --test tests/*.test.js
+
       - name: Existing integration regression
         run: node --test integration_tests/*.test.mjs
-      - name: Syntax gates
-        run: |
-          node --check delivery_runtime/semantic_kernel/kernel.js
-          node --check delivery_runtime/semantic_kernel/narrative-boundary.js
-          node --check delivery_runtime/api/e2e-natal.js
-          node --check integration-server.js
+
       - name: Semantic boundary source assertions
         run: |
+          set -euo pipefail
           grep -q 'buildFrozenNatalArtifact' delivery_runtime/api/e2e-natal.js
           grep -q 'groqNarrativeInstructions(frozenArtifact)' delivery_runtime/api/e2e-natal.js
           grep -q 'toLegacySemanticPayload(frozenArtifact' delivery_runtime/api/e2e-natal.js
           ! grep -q 'canonicalizeModelPayload(modelPayload' delivery_runtime/api/e2e-natal.js
           grep -q 'semantic_dependencies' integration-server.js
           grep -q 'buildSemanticDependencyEvidence' gm_integration/natal-evidence.js
+
+      - name: Non functional comparison
+        run: node delivery_runtime/semantic_kernel/benchmark.js
