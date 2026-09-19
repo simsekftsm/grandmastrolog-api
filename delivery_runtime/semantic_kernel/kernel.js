@@ -19,7 +19,7 @@ function fail(code, message, path) { throw new SemanticKernelError(code, message
 
 function canonicalDependencyLock(semanticDependencies, localDependencies = {}) {
   if (!semanticDependencies || typeof semanticDependencies !== 'object' || Array.isArray(semanticDependencies)) fail('SEMANTIC_DEPENDENCY_LOCK_REQUIRED');
-  for (const key of ['ephemeris_engine','ephemeris_data','timezone_data','calculation_implementation']) {
+  for (const key of ['ephemeris_engine','ephemeris_data','timezone_data','calculation_implementation','coordinate_canonicalization','house_calculation']) {
     const d = semanticDependencies[key];
     if (!d || typeof d.version !== 'string' || !d.version || !/^[a-f0-9]{64}$/.test(String(d.sha256 || ''))) {
       fail('SEMANTIC_DEPENDENCY_INVALID', `Dependency ${key} must carry version and immutable sha256.`, `$.semantic_dependencies.${key}`);
