@@ -1,0 +1,93 @@
+name: Final Release Restore Accepted Vercel Transport
+
+on:
+  push:
+    branches:
+      - m1a5-root-repair-runtime-4608
+    paths:
+      - '.github/workflows/final-release-restore-vercel-transport.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  restore-accepted-transport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_x74ux30dPQwWNHy4a8wCkiMx
+      VERCEL_PROJECT_ID: prj_XhDus3tQsyiLxrPccbQteXLwbB2a
+      TARGET_DEPLOYMENT_URL: https://grandmastrolog-delivery-runtime-801696pym.vercel.app
+      TARGET_DEPLOYMENT_ID: dpl_DgkmhKFX1EqpBE6j9wJ12fGjpRWa
+      EXPECTED_RUNTIME_SHA: b5ee123cecdbe220a8db7957a64f881738c07b24
+      EXPECTED_SOURCE_FINGERPRINT: 0b7e1b7aa335918b795bc87de6a73f27ea4d6f6e8b8fc8ac50d2600d3f4f006c
+      PRODUCTION_URL: https://grandmastrolog-delivery-runtime.vercel.app
+
+    steps:
+      - name: Checkout controller
+        uses: actions/checkout@v5
+
+      - name: Require Vercel authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}" || { echo "BLOCKED:VERCEL_TOKEN_MISSING"; exit 2; }
+
+      - name: Link exact Vercel project
+        working-directory: delivery_runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global vercel@latest
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN" >/dev/null
+          python3 - <<'PY'
+          import json,os
+          x=json.load(open('.vercel/project.json',encoding='utf-8'))
+          assert x.get('projectId')==os.environ['VERCEL_PROJECT_ID']
+          assert x.get('orgId')==os.environ['VERCEL_ORG_ID']
+          print('VERCEL_PROJECT_BINDING=PASS')
+          PY
+
+      - name: Promote previously accepted immutable deployment
+        working-directory: delivery_runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          vercel promote "$TARGET_DEPLOYMENT_URL" --yes --token="$VERCEL_TOKEN"
+
+      - name: Verify restored production provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 24); do
+            if curl -fsS "$PRODUCTION_URL/api/health" -o /tmp/health.json; then
+              if python3 - <<'PY'
+          import json,os
+          x=json.load(open('/tmp/health.json',encoding='utf-8'))
+          d=x.get('deployment_provenance') or {}
+          p=x.get('source_provenance') or {}
+          t=x.get('runtime_transport') or {}
+          ok=(
+            x.get('ok') is True
+            and x.get('stage')=='M1A-4'
+            and x.get('final_delivery_authorized') is True
+            and d.get('deployment_id')==os.environ['TARGET_DEPLOYMENT_ID']
+            and d.get('project_id')==os.environ['VERCEL_PROJECT_ID']
+            and d.get('environment')=='production'
+            and p.get('fingerprint')==os.environ['EXPECTED_SOURCE_FINGERPRINT']
+            and t.get('mechanism')=='immutable_github_archive_dependency'
+            and t.get('runtime_source_commit')==os.environ['EXPECTED_RUNTIME_SHA']
+          )
+          raise SystemExit(0 if ok else 1)
+          PY
+              then
+                echo "RESTORED_ACCEPTED_VERCEL_TRANSPORT=PASS"
+                exit 0
+              fi
+            fi
+            sleep 5
+          done
+          cat /tmp/health.json || true
+          echo "FAIL:RESTORED_PRODUCTION_PROVENANCE_MISMATCH"
+          exit 1
