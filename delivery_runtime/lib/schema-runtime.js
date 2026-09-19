@@ -35,6 +35,10 @@ function isPlainObject(value) {
 function validateNode(value, node, root, path) {
   if (node.$ref) return validateNode(value, resolveRef(root, node.$ref), root, path);
 
+  if (Object.prototype.hasOwnProperty.call(node, 'const') && !Object.is(node.const, value)) {
+    fail('SCHEMA_CONST', 'Value does not match schema const.', path);
+  }
+
   if (node.enum && !node.enum.some((candidate) => Object.is(candidate, value))) {
     fail('SCHEMA_ENUM', 'Value is outside schema enum.', path);
   }
@@ -61,6 +65,14 @@ function validateNode(value, node, root, path) {
     if (!Array.isArray(value)) fail('SCHEMA_TYPE', 'Expected array.', path);
     if (node.minItems !== undefined && value.length < node.minItems) fail('SCHEMA_ARRAY_SIZE', 'Array is below minItems.', path);
     if (node.maxItems !== undefined && value.length > node.maxItems) fail('SCHEMA_ARRAY_SIZE', 'Array exceeds maxItems.', path);
+    if (node.uniqueItems === true) {
+      const seen = new Set();
+      for (const item of value) {
+        const key = JSON.stringify(item);
+        if (seen.has(key)) fail('SCHEMA_UNIQUE_ITEMS', 'Array contains duplicate items.', path);
+        seen.add(key);
+      }
+    }
     if (node.items) value.forEach((item, i) => validateNode(item, node.items, root, `${path}[${i}]`));
     return;
   }
@@ -69,6 +81,7 @@ function validateNode(value, node, root, path) {
     if (typeof value !== 'string') fail('SCHEMA_TYPE', 'Expected string.', path);
     if (node.minLength !== undefined && value.length < node.minLength) fail('SCHEMA_STRING_SIZE', 'String is below minLength.', path);
     if (node.maxLength !== undefined && value.length > node.maxLength) fail('SCHEMA_STRING_SIZE', 'String exceeds maxLength.', path);
+    if (node.pattern !== undefined && !(new RegExp(node.pattern, 'u')).test(value)) fail('SCHEMA_PATTERN', 'String does not match schema pattern.', path);
     return;
   }
 
