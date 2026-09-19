@@ -1,0 +1,19 @@
+{
+  "pack_id": "gm.doctrine.natal-core.v1",
+  "version": "1.0.0",
+  "scope": "natal.core",
+  "rules": [
+    {"rule_id":"profile.triad.primary.v1","section_id":"profilin","subjects":["sun","moon","ascendant"],"status":"SUPPORTED","robustness":"ROBUST","salience":"PRIMARY","template":"Kimlik odağında {sun}, duygusal işleyişte {moon}, dışa yansıyan yaklaşımda {ascendant} birlikte çalışır; profil yorumu bu üç doğrulanmış eksenin sentezine dayanır."},
+    {"rule_id":"profile.triad.tension.v1","section_id":"profilin","subjects":["sun","moon","ascendant"],"status":"SUPPORTED","robustness":"ROBUST","salience":"SUPPORTING","template":"Güneş, Ay ve Yükselen aynı işlevi temsil etmez; bu nedenle iç ihtiyaç, kimlik yönü ve dış tavır arasındaki farklar profilde aynı anda taşınmalıdır."},
+    {"rule_id":"essence.operating-law.v1","section_id":"haritanin_ozu","subjects":["sun","moon","ascendant"],"status":"SUPPORTED","robustness":"ROBUST","salience":"PRIMARY","template":"Haritanın ana çalışma yasası {sun}, {moon} ve {ascendant} eksenlerinin birlikte okunmasına dayanır; tek bir yerleşim bütün karakterin yerine geçirilemez."},
+    {"rule_id":"essence.resource.v1","section_id":"haritanin_ozu","subjects":["sun","moon","ascendant"],"status":"SUPPORTED","robustness":"ROBUST","salience":"SUPPORTING","template":"Ana kaynak, doğrulanmış Güneş-Ay-Yükselen bileşiminin farklı ihtiyaçları aynı davranışta birleştirebilme kapasitesidir."},
+    {"rule_id":"career.structure.v1","section_id":"para_kariyer","subjects":["mc","saturn","jupiter"],"status":"SUPPORTED","robustness":"ROBUST","salience":"PRIMARY","template":"Kariyer ve kaynak hattı {mc}, {saturn} ve {jupiter} göstergeleriyle sınırlandırılır; mesleki yön, yapı/sorumluluk ve büyüme alanı birlikte değerlendirilir."},
+    {"rule_id":"career.boundary.v1","section_id":"para_kariyer","subjects":["mc","saturn","jupiter"],"status":"SUPPORTED","robustness":"ROBUST","salience":"SUPPORTING","template":"Bu bölüm ilişki veya aile biyografisi üretmez; yalnız doğrulanmış kariyer ve kaynak göstergelerinden türeyen anlamı taşır."},
+    {"rule_id":"relationship.dynamic.v1","section_id":"iliskiler","subjects":["venus","mars","moon"],"status":"SUPPORTED","robustness":"ROBUST","salience":"PRIMARY","template":"İlişki dinamiği {venus}, {mars} ve {moon} göstergelerinin birlikte okunmasına dayanır; bağ kurma, istek/eylem ve duygusal ihtiyaç aynı çerçevede tutulur."},
+    {"rule_id":"relationship.no-biography.v1","section_id":"iliskiler","subjects":["venus","mars","moon"],"status":"SUPPORTED","robustness":"ROBUST","salience":"SUPPORTING","template":"Doğrulanmış yerleşimler ilişki eğilimlerini sınırlar; yaşanmış olay veya partner biyografisi bu claim setinden çıkarılamaz."},
+    {"rule_id":"family.roots.v1","section_id":"aile","subjects":["moon","saturn"],"status":"SUPPORTED","robustness":"ROBUST","salience":"PRIMARY","template":"Aile ve kökler alanında {moon} ve {saturn} birlikte değerlendirilir; duygusal güvenlik ile yapı/sınır teması aynı bölümde taşınır."},
+    {"rule_id":"family.no-history.v1","section_id":"aile","subjects":["moon","saturn"],"status":"SUPPORTED","robustness":"ROBUST","salience":"SUPPORTING","template":"Bu göstergeler aile tarihini kanıtlamaz; frozen artifact yalnız eğilim düzeyindeki yoruma izin verir."},
+    {"rule_id":"karma.repetition.v1","section_id":"karmalar","subjects":["north_node","saturn","pluto"],"status":"SUPPORTED","robustness":"ROBUST","salience":"PRIMARY","template":"Tekrarlayan öğrenme temaları {north_node}, {saturn} ve {pluto} göstergeleriyle sınırlandırılır; düğüm yönü, yapı/sorumluluk ve yoğun dönüşüm teması birlikte değerlendirilir."},
+    {"rule_id":"karma.nonfatalistic.v1","section_id":"karmalar","subjects":["north_node","saturn","pluto"],"status":"SUPPORTED","robustness":"ROBUST","salience":"SUPPORTING","template":"Bu katman kader kesinliği üretmez; yalnız doctrine kapsamındaki tekrar ve öğrenme örüntüsünü ifade eder."}
+  ]
+}
