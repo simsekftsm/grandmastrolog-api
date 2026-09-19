@@ -26,9 +26,9 @@ const FILES = Object.freeze({
   'delivery_runtime/public/elements/toprak.png': '8a64f0f2470b43b92bd33e0a506a65cfbc60a029',
   'delivery_runtime/semantic_kernel/dependency-runtime.js': 'aa0656c531c4fa36d07a64d766864cd32a619ef9',
   'delivery_runtime/semantic_kernel/doctrine/natal-core.v1.json': '081ea9ccd6e119dc111f904f117a66ef42410814',
-  'delivery_runtime/semantic_kernel/kernel.js': '4ad4999d4fc3caec98da2f4d20a43dc3f067c3cf',
+  'delivery_runtime/semantic_kernel/kernel.js': 'a9873e6a8aad32194340816222c54092b7d122fe',
   'delivery_runtime/semantic_kernel/migration.js': '63cf52dd05c71d5d8aa46dbc2bc4956e23a727f6',
-  'delivery_runtime/semantic_kernel/narrative-boundary.js': 'f2c51d3ba641edff64c3f9a4e26644559af23084',
+  'delivery_runtime/semantic_kernel/narrative-boundary.js': 'f8eb658166e26babd6ee08af436dc820a429a7ea',
   'delivery_runtime/semantic_kernel/pass-contracts.js': '80aacd6d231ca77fb480e92da755b11148bb6f2f',
   'delivery_runtime/semantic_kernel/stable.js': '8b720f42f1ce6e770b4b21272d17e1adca0fbede',
   'delivery_runtime/semantic_kernel/transaction-store.js': 'e80a88968ba36f3ec166163007819af7a4bbc00a',
@@ -36,7 +36,7 @@ const FILES = Object.freeze({
   'delivery_runtime/vercel.json': '45013816265b435af66145e71cfc90248ce1c814',
 });
 
-const FINGERPRINT = '9fbe7f2154b8bbb6bff85d5cc1319aaa075434110e8c9c3c2ca37edac206225b';
+const FINGERPRINT = 'e87765d92467ae5b83dc5848c552485b2c0281de6958fa8d2f23d748812017a7';
 
 function sourceProvenance() {
   return {
