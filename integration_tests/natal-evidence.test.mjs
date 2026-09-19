@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildNatalBindingInput } from '../gm_integration/natal-evidence.js';
+import { buildNatalBindingInput, buildSemanticDependencyEvidence } from '../gm_integration/natal-evidence.js';
 
 const syntheticBirth = Object.freeze({
   date: '2000-01-01',
@@ -57,4 +57,16 @@ test('invalid astro source input fails closed', () => {
     }),
     /BIRTH_DATETIME_INVALID/
   );
+});
+
+
+test('semantic dependency evidence binds engine data timezone and calculation bytes', () => {
+  const deps = buildSemanticDependencyEvidence();
+  for (const key of ['ephemeris_engine','ephemeris_data','timezone_data','calculation_implementation','coordinate_canonicalization','house_calculation']) {
+    assert.equal(typeof deps[key].version, 'string');
+    assert.ok(deps[key].version.length > 0);
+    assert.match(deps[key].sha256, /^[a-f0-9]{64}$/);
+  }
+  assert.equal(deps.calculation_implementation.sha256, deps.coordinate_canonicalization.sha256);
+  assert.equal(deps.calculation_implementation.sha256, deps.house_calculation.sha256);
 });
