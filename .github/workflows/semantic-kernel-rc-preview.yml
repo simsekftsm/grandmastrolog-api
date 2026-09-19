@@ -56,7 +56,7 @@ jobs:
           # remotely so preview-scoped secrets remain server-side and no
           # production-target prebuilt artifact is promoted by accident.
           npx --yes vercel@latest pull --yes --environment=preview --token="$VERCEL_TOKEN" --cwd=delivery_runtime
-          URL="$(npx --yes vercel@latest deploy --yes --token="$VERCEL_TOKEN" --cwd=delivery_runtime)"
+          URL="$(npx --yes vercel@latest deploy --yes --token="$VERCEL_TOKEN" --cwd=delivery_runtime --env GM_SEMANTIC_RC_PREVIEW_AUTHORIZED=true)"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "PREVIEW_URL=$URL" >> "$GITHUB_ENV"
           echo "RC preview: $URL" >> "$GITHUB_STEP_SUMMARY"
@@ -116,8 +116,9 @@ jobs:
           const fs=require('node:fs');
           const x=JSON.parse(fs.readFileSync('/tmp/e2e-out.json','utf8'));
           if(x.ok!==true || x.delivery?.delivery_state!=='final_delivery_validated') throw new Error('FINAL_DELIVERY_NOT_VALIDATED');
+          if(x.delivery?.provenance?.environment!=='preview' || x.delivery?.provenance?.rc_preview_authorized!==true) throw new Error('RC_PREVIEW_PROVENANCE_NOT_AUTHORIZED');
           const s=x.semantic||{};
-          for(const k of ['build_id','transition_id','frozen_artifact_id','dependency_lock_id','narrative_anchor_id']) {
+          for(const k of ['build_id','semantic_artifact_id','transition_id','frozen_artifact_sha256','dependency_lock_id','narrative_anchor_id']) {
             if(typeof s[k]!=='string' || !s[k]) throw new Error('SEMANTIC_IDENTITY_MISSING:'+k);
           }
           const raw=JSON.stringify(x);
