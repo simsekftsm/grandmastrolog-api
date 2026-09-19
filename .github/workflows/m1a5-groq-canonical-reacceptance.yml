@@ -1,0 +1,322 @@
+name: M1A-5 Groq Canonical Re-Acceptance
+
+on:
+  push:
+    branches:
+      - m1a5-root-repair-runtime-4608
+    paths:
+      - '.github/workflows/m1a5-groq-canonical-reacceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  groq-reacceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      RUNTIME_SHA: b5ee123cecdbe220a8db7957a64f881738c07b24
+      FROZEN_SHA: fb1f0498cd0a7c49580cfde574a407e00e2bc20b
+      VERCEL_URL: https://grandmastrolog-delivery-runtime.vercel.app
+      RAILWAY_URL: https://grandmastrolog-api-production.up.railway.app
+      EXPECTED_VERCEL_DEPLOYMENT: dpl_DgkmhKFX1EqpBE6j9wJ12fGjpRWa
+      EXPECTED_VERCEL_PROJECT: prj_XhDus3tQsyiLxrPccbQteXLwbB2a
+      EXPECTED_SOURCE_FINGERPRINT: 0b7e1b7aa335918b795bc87de6a73f27ea4d6f6e8b8fc8ac50d2600d3f4f006c
+      EXPECTED_RAILWAY_DEPLOYMENT: 8c5c1843-0022-4e05-9350-3008730b3087
+      GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
+
+    steps:
+      - name: Checkout acceptance controller
+        uses: actions/checkout@v5
+        with:
+          ref: m1a5-root-repair-runtime-4608
+          fetch-depth: 0
+
+      - name: Freeze acceptance inputs and Groq runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GM_API_SECRET:-}" || { echo "BLOCKED:GM_API_SECRET_MISSING"; exit 2; }
+          git cat-file -e "$RUNTIME_SHA^{commit}"
+          git fetch --no-tags --depth=1 origin "$FROZEN_SHA"
+          for f in             m1a5_acceptance/corpus.normal-natal.v1.json             m1a5_acceptance/rubric.semantic-quality.v1.json             m1a5_acceptance/frozen-manifest.json             m1a5_acceptance/oracle-core.mjs
+          do
+            test "$(git rev-parse "HEAD:$f")" = "$(git rev-parse "FETCH_HEAD:$f")" || {
+              echo "FAIL:FROZEN_ARTIFACT_DRIFT:$f"
+              exit 1
+            }
+          done
+          test "$(git show "$RUNTIME_SHA:delivery_runtime/api/e2e-natal.js" | grep -c "DEFAULT_GROQ_MODEL = 'openai/gpt-oss-120b'")" = "1"
+          test "$(git show "$RUNTIME_SHA:delivery_runtime/api/e2e-natal.js" | grep -c "api.groq.com/openai/v1/responses")" = "1"
+          test "$(git show "$RUNTIME_SHA:delivery_runtime/lib/groq-binding.js" | grep -c "GROQ_MAX_OUTPUT_TOKENS = 4608")" = "1"
+          echo "GROQ_RUNTIME_IDENTITY=PASS"
+
+      - name: Verify current production before spending model quota
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "$VERCEL_URL/api/health" -o /tmp/vercel-health.json
+          curl -fsS "$RAILWAY_URL/integration/health" -o /tmp/railway-integration.json
+          curl -fsS "$RAILWAY_URL/health" -o /tmp/railway-health.json
+          python3 - <<'PY'
+          import json,os
+          v=json.load(open('/tmp/vercel-health.json',encoding='utf-8'))
+          r=json.load(open('/tmp/railway-integration.json',encoding='utf-8'))
+          l=json.load(open('/tmp/railway-health.json',encoding='utf-8'))
+          p=v.get('source_provenance') or {}
+          d=v.get('deployment_provenance') or {}
+          assert v.get('ok') is True
+          assert v.get('delivery_validator_enabled') is True
+          assert v.get('final_delivery_authorized') is True
+          assert p.get('fingerprint')==os.environ['EXPECTED_SOURCE_FINGERPRINT']
+          assert d.get('deployment_id')==os.environ['EXPECTED_VERCEL_DEPLOYMENT']
+          assert d.get('project_id')==os.environ['EXPECTED_VERCEL_PROJECT']
+          assert d.get('environment')=='production'
+          assert r.get('ok') is True and r.get('legacy_ready') is True
+          assert r.get('evidence_engine')=='grandmastrolog_swisseph_natal_v1'
+          assert r.get('railway_commit')==os.environ['RUNTIME_SHA']
+          assert r.get('railway_deployment_id')==os.environ['EXPECTED_RAILWAY_DEPLOYMENT']
+          assert l.get('ok') is True and l.get('service')=='grandmastrolog-api'
+          assert (l.get('swisseph') or {}).get('ok') is True
+          print('PRE_QUOTA_PRODUCTION_PROVENANCE=PASS')
+          PY
+
+      - name: Run exact Groq runtime and integration regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/groq-runtime "$RUNTIME_SHA"
+          cd /tmp/groq-runtime
+          npm install --no-audit --no-fund
+          node --test delivery_runtime/tests/*.test.js | tee /tmp/groq-runtime.tap
+          test "$(awk '/^# tests /{print $3}' /tmp/groq-runtime.tap | tail -1)" = "108"
+          test "$(awk '/^# pass /{print $3}' /tmp/groq-runtime.tap | tail -1)" = "108"
+          test "$(awk '/^# fail /{print $3}' /tmp/groq-runtime.tap | tail -1)" = "0"
+          node --test integration_tests/natal-evidence.test.mjs integration_tests/e2e-runtime.test.mjs | tee /tmp/groq-integration.tap
+          test "$(awk '/^# tests /{print $3}' /tmp/groq-integration.tap | tail -1)" = "10"
+          test "$(awk '/^# pass /{print $3}' /tmp/groq-integration.tap | tail -1)" = "10"
+          test "$(awk '/^# fail /{print $3}' /tmp/groq-integration.tap | tail -1)" = "0"
+          echo "GROQ_RUNTIME_REGRESSION=108/108_PASS"
+          echo "GROQ_INTEGRATION_REGRESSION=10/10_PASS"
+
+      - name: Run exactly three quota-bounded live M1A-5 cases
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p groq-reacceptance-evidence
+          node <<'NODE'
+          const fs=require('node:fs');
+          const crypto=require('node:crypto');
+          const {pathToFileURL}=require('node:url');
+          const {buildNatalBindingInput}=require('/tmp/groq-runtime/gm_integration/natal-evidence.js');
+
+          const corpus=JSON.parse(fs.readFileSync('m1a5_acceptance/corpus.normal-natal.v1.json','utf8'));
+          const frozenRubric=JSON.parse(fs.readFileSync('m1a5_acceptance/rubric.semantic-quality.v1.json','utf8'));
+          const manifest=JSON.parse(fs.readFileSync('m1a5_acceptance/frozen-manifest.json','utf8'));
+          const delta=JSON.parse(fs.readFileSync('m1a5_successor/calibration-delta.v1.json','utf8'));
+          const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
+          const corpusRaw=fs.readFileSync('m1a5_acceptance/corpus.normal-natal.v1.json','utf8');
+          const rubricRaw=fs.readFileSync('m1a5_acceptance/rubric.semantic-quality.v1.json','utf8');
+
+          function clone(x){ return JSON.parse(JSON.stringify(x)); }
+          function applyDelta(r,d){
+            if(d.base_rubric_id!==r.rubric_id) throw new Error('DELTA_RUBRIC_ID');
+            if(d.mutation_scope!=='canonical_language.required_markers_exact_once_in_order') throw new Error('DELTA_SCOPE');
+            if(d.semantic_thresholds_unchanged!==true) throw new Error('DELTA_THRESHOLDS');
+            const old=d.superseded_markers;
+            const markers=r.canonical_language.required_markers_exact_once_in_order;
+            if(!old.every(x=>markers.filter(y=>y===x).length===1)) throw new Error('DELTA_MARKERS');
+            const at=Math.min(...old.map(x=>markers.indexOf(x)));
+            const next=markers.filter(x=>!old.includes(x));
+            next.splice(at,0,d.authorized_marker);
+            const out=clone(r);
+            out.canonical_language.required_markers_exact_once_in_order=next;
+            return out;
+          }
+
+          (async()=>{
+            if(sha(corpusRaw)!==manifest.corpus_sha256) throw new Error('FROZEN_CORPUS_HASH');
+            if(sha(rubricRaw)!==manifest.rubric_sha256) throw new Error('FROZEN_RUBRIC_HASH');
+            const rubric=applyDelta(frozenRubric,delta);
+            const {evaluate,anchorScore,producer,aggregate}=await import(pathToFileURL(process.cwd()+'/m1a5_acceptance/oracle-core.mjs').href);
+            const cases=[];
+            let lastCall=0;
+            let providerBlocked=false;
+            const GAP_MS=75000;
+
+            for(const t of corpus.cases){
+              if(providerBlocked){
+                cases.push({case_id:t.case_id,verdict:'BLOCKED',reason:'SKIPPED_AFTER_PROVIDER_BLOCK_TO_PROTECT_QUOTA'});
+                continue;
+              }
+              const wait=Math.max(0,GAP_MS-(Date.now()-lastCall));
+              if(wait){
+                console.log('QUOTA_GUARD_WAIT_MS='+wait);
+                await new Promise(r=>setTimeout(r,wait));
+              }
+              lastCall=Date.now();
+              console.log('LIVE_CASE_START='+t.case_id+' '+new Date(lastCall).toISOString());
+
+              const src=buildNatalBindingInput({request_id:t.request_id,birth:t.birth});
+              let response;
+              try{
+                response=await fetch(process.env.RAILWAY_URL+'/natal/deliver',{
+                  method:'POST',
+                  headers:{'content-type':'application/json','x-gm-secret':process.env.GM_API_SECRET},
+                  body:JSON.stringify({request_id:t.request_id,birth:t.birth}),
+                  signal:AbortSignal.timeout(120000)
+                });
+              }catch(e){
+                cases.push({case_id:t.case_id,verdict:'BLOCKED',reason:'PRODUCTION_NETWORK_'+String(e?.name||'ERROR')});
+                providerBlocked=true;
+                continue;
+              }
+              let live={};
+              try{ live=await response.json(); }catch{}
+              if(!response.ok || live?.ok!==true){
+                const code=String(live?.code||'HTTP_'+response.status);
+                const quotaLike=response.status===429 || code==='MODEL_BINDING_UPSTREAM_FAIL' || code==='DELIVERY_RUNTIME_TIMEOUT' || code==='DELIVERY_RUNTIME_UNAVAILABLE';
+                cases.push({case_id:t.case_id,verdict:quotaLike?'BLOCKED':'FAIL',reason:code,status:response.status});
+                if(quotaLike) providerBlocked=true;
+                console.log('LIVE_CASE '+JSON.stringify(cases[cases.length-1]));
+                continue;
+              }
+
+              const rw=live?.provenance?.railway||{};
+              const dv=live?.provenance?.delivery_runtime||{};
+              const provenanceOk=
+                rw.commit===process.env.RUNTIME_SHA &&
+                rw.deployment_id===process.env.EXPECTED_RAILWAY_DEPLOYMENT &&
+                dv.deployment_id===process.env.EXPECTED_VERCEL_DEPLOYMENT &&
+                dv.project_id===process.env.EXPECTED_VERCEL_PROJECT &&
+                dv.source_fingerprint===process.env.EXPECTED_SOURCE_FINGERPRINT;
+              if(!provenanceOk){
+                cases.push({case_id:t.case_id,verdict:'BLOCKED',reason:'PRODUCTION_PROVENANCE_DRIFT',observed:{railway:rw,delivery_runtime:dv}});
+                providerBlocked=true;
+                continue;
+              }
+
+              const evidenceHashMatch=src.evidence_sha256===live.evidence_sha256;
+              const e=evaluate(live.output,src.binding_input.verified_evidence,rubric);
+              if(!evidenceHashMatch){
+                e.dimensions.contradiction={...e.dimensions.contradiction,verdict:'FAIL',evidence_hash_match:false};
+                e.producer_failures.push({dimension:'contradiction',layer:'astro_evidence_or_integration',proven:true,basis:'Production evidence digest differs from the exact local Groq runtime evidence digest.'});
+              }
+              const verdict=aggregate(Object.values(e.dimensions).map(x=>x.verdict));
+              fs.writeFileSync('groq-reacceptance-evidence/'+t.case_id+'.json',JSON.stringify({
+                case_id:t.case_id,
+                request_id:t.request_id,
+                evidence_sha256_local:src.evidence_sha256,
+                evidence_sha256_production:live.evidence_sha256,
+                output:live.output,
+                provenance:live.provenance
+              },null,2)+'\n');
+              cases.push({
+                case_id:t.case_id,
+                verdict,
+                evidence_hash_match:evidenceHashMatch,
+                output_sha256:sha(live.output),
+                dimensions:e.dimensions,
+                producer_failures:e.producer_failures,
+                _body:e.combinedBody,
+                _ev:src.binding_input.verified_evidence
+              });
+              console.log('LIVE_CASE '+JSON.stringify({case_id:t.case_id,verdict,dimensions:Object.fromEntries(Object.entries(e.dimensions).map(([k,v])=>[k,v.verdict]))}));
+            }
+
+            const complete=cases.filter(x=>x._body&&x._ev);
+            const counterexample=[];
+            if(complete.length!==corpus.cases.length){
+              counterexample.push({verdict:'UNKNOWN',reason:'COUNTEREXAMPLE_REQUIRES_ALL_THREE_LIVE_OUTPUTS'});
+            } else {
+              for(const own of complete){
+                const ownScore=anchorScore(own._body,own._ev,rubric.specificity.anchor_subjects).score;
+                let bestOther=0;
+                const comparisons=[];
+                for(const other of complete){
+                  if(other.case_id===own.case_id) continue;
+                  const score=anchorScore(own._body,other._ev,rubric.specificity.anchor_subjects).score;
+                  bestOther=Math.max(bestOther,score);
+                  comparisons.push({against_case_id:other.case_id,score});
+                }
+                const margin=ownScore-bestOther;
+                const pass=ownScore>=rubric.counterexample_specificity.minimum_own_anchor_score &&
+                  margin>=rubric.counterexample_specificity.minimum_margin_over_best_other_case;
+                counterexample.push({
+                  case_id:own.case_id,
+                  verdict:pass?'PASS':'FAIL',
+                  own_anchor_score:ownScore,
+                  best_other_case_score:bestOther,
+                  margin,
+                  comparisons,
+                  producer:pass?null:producer('counterexample_specificity')
+                });
+              }
+            }
+            for(const x of cases){ delete x._body; delete x._ev; }
+            const overall=aggregate([...cases.map(x=>x.verdict),...counterexample.map(x=>x.verdict)]);
+            const result={
+              overall,
+              acceptance_id:'M1A-5_GROQ_CANONICAL_REACCEPTANCE',
+              runtime_source_commit:process.env.RUNTIME_SHA,
+              railway_deployment_id:process.env.EXPECTED_RAILWAY_DEPLOYMENT,
+              vercel_deployment_id:process.env.EXPECTED_VERCEL_DEPLOYMENT,
+              vercel_project_id:process.env.EXPECTED_VERCEL_PROJECT,
+              source_fingerprint:process.env.EXPECTED_SOURCE_FINGERPRINT,
+              provider:'groq',
+              model:'openai/gpt-oss-120b',
+              quota_guard:{live_model_calls_attempted:cases.filter(x=>x.reason!=='SKIPPED_AFTER_PROVIDER_BLOCK_TO_PROTECT_QUOTA').length,max_live_model_calls:3,gap_ms:GAP_MS,stop_after_provider_block:true},
+              corpus_id:corpus.corpus_id,
+              corpus_sha256:manifest.corpus_sha256,
+              rubric_id:frozenRubric.rubric_id,
+              rubric_sha256:manifest.rubric_sha256,
+              successor_delta_id:delta.successor_delta_id,
+              cases,
+              counterexample_specificity:counterexample
+            };
+            fs.writeFileSync('groq-reacceptance-evidence/results.json',JSON.stringify(result,null,2)+'\n');
+            console.log('M1A5_GROQ_OVERALL='+overall);
+            for(const c of cases) console.log('M1A5_CASE '+c.case_id+'='+c.verdict+(c.reason?':'+c.reason:''));
+            for(const c of counterexample) console.log('M1A5_COUNTEREXAMPLE '+String(c.case_id||'aggregate')+'='+c.verdict);
+            if(overall==='PASS') process.exit(0);
+            if(overall==='FAIL') process.exit(1);
+            process.exit(2);
+          })().catch(e=>{
+            fs.writeFileSync('groq-reacceptance-evidence/results.json',JSON.stringify({overall:'UNKNOWN',reason:'ACCEPTANCE_INTERNAL_ERROR',error:String(e?.message||e)},null,2)+'\n');
+            console.error(e);
+            process.exit(3);
+          });
+          NODE
+
+      - name: Upload immutable Groq re-acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1a5-groq-canonical-reacceptance-${{ github.run_id }}
+          path: groq-reacceptance-evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Final acceptance gate
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f groq-reacceptance-evidence/results.json || { echo "BLOCKED:RESULT_MISSING"; exit 2; }
+          python3 - <<'PY'
+          import json
+          x=json.load(open('groq-reacceptance-evidence/results.json',encoding='utf-8'))
+          print('M1A5_GROQ_FINAL='+str(x.get('overall')))
+          print('PROVIDER='+str(x.get('provider')))
+          print('MODEL='+str(x.get('model')))
+          print('QUOTA_GUARD='+json.dumps(x.get('quota_guard'),sort_keys=True))
+          for c in x.get('cases',[]):
+              print('CASE',c.get('case_id'),c.get('verdict'),c.get('reason',''))
+          for c in x.get('counterexample_specificity',[]):
+              print('COUNTEREXAMPLE',c.get('case_id','aggregate'),c.get('verdict'),c.get('margin',''))
+          if x.get('overall')!='PASS': raise SystemExit(1)
+          if [c.get('verdict') for c in x.get('cases',[])] != ['PASS','PASS','PASS']: raise SystemExit(1)
+          if [c.get('verdict') for c in x.get('counterexample_specificity',[])] != ['PASS','PASS','PASS']: raise SystemExit(1)
+          PY
