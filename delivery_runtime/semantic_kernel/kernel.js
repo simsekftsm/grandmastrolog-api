@@ -213,6 +213,30 @@ function blameSlice(before,after){
   const changed=[]; for(const pid of new Set([...a.keys(),...b.keys()])) if(stableSerialize(a.get(pid)||null)!==stableSerialize(b.get(pid)||null)) changed.push(pid);
   return changed.sort();
 }
+function planRebuild(changedPaths) {
+  const paths = Array.isArray(changedPaths) ? changedPaths.map(String) : [];
+  if (!paths.length) return freezeDeep({ mode:'PATCH', from:'none', invalidates:[] });
+
+  const matches = (prefixes) => paths.some((p)=>prefixes.some((prefix)=>p===prefix||p.startsWith(prefix+'.')||p.startsWith(prefix+'/')));
+
+  if (matches(['astroir_schema','kernel','semantic_dependency_lock','ephemeris_engine','ephemeris_data','timezone_data','calculation_implementation','coordinate_canonicalization','house_calculation'])) {
+    return freezeDeep({ mode:'FULL_SEMANTIC_REBUILD', from:'canonical_input', invalidates:['observed_calculated_state','deterministic_derivation_state','defeasible_interpretation_state','frozen_artifact'] });
+  }
+  if (matches(['doctrine_pack','rules'])) {
+    return freezeDeep({ mode:'PARTIAL_REBUILD', from:'deterministic_derivation_state', invalidates:['deterministic_derivation_state','defeasible_interpretation_state','frozen_artifact'] });
+  }
+  if (matches(['binding_input','verified_evidence','birth','location','timezone'])) {
+    return freezeDeep({ mode:'PARTIAL_REBUILD', from:'observed_calculated_state', invalidates:['observed_calculated_state','deterministic_derivation_state','defeasible_interpretation_state','frozen_artifact'] });
+  }
+  if (matches(['context','calibration','counterevidence','claim_state'])) {
+    return freezeDeep({ mode:'PATCH', from:'defeasible_interpretation_state', invalidates:['defeasible_interpretation_state','frozen_artifact'] });
+  }
+  if (matches(['renderer','ui','pdf','translation','style'])) {
+    return freezeDeep({ mode:'PATCH', from:'narrative_only', invalidates:[] });
+  }
+  return freezeDeep({ mode:'PARTIAL_REBUILD', from:'unknown_semantic_dependency', invalidates:['frozen_artifact'] });
+}
+
 function semanticDiff(parent,candidate){
   if(!parent) return [{path:'$',before:null,after_sha256:sha256(candidate)}];
   const fields=['observed_calculated_state','deterministic_derivation_state','defeasible_interpretation_state','dependency_graph','build_id','dependency_lock_id'];
@@ -286,4 +310,4 @@ function independentSupportCount(artifact,claimIds){
   return new Set(claims.flatMap((c)=>c.provenance.lineage_ids || [c.provenance.lineage_id])).size;
 }
 
-module.exports={ASTROIR_VERSION,SCHEMA_ID,KERNEL_ID,REQUIRED_SECTIONS,SemanticKernelError,buildFrozenNatalArtifact,verifyFrozenArtifact,backwardSlice,forwardSlice,blameSlice,counterfactualSlice,semanticDiff,sameSemanticSnapshot,canonicalDependencyLock,canonicalizeBindingInput,independentSupportCount};
+module.exports={ASTROIR_VERSION,SCHEMA_ID,KERNEL_ID,REQUIRED_SECTIONS,SemanticKernelError,buildFrozenNatalArtifact,verifyFrozenArtifact,backwardSlice,forwardSlice,blameSlice,counterfactualSlice,planRebuild,semanticDiff,sameSemanticSnapshot,canonicalDependencyLock,canonicalizeBindingInput,independentSupportCount};
