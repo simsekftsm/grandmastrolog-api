@@ -47,13 +47,22 @@ jobs:
         run: |
           node - <<'NODE'
           const fs=require('node:fs');
-          const names=['cors','dotenv','express','groq-sdk','helmet','pg','swisseph','luxon'];
-          const out={};
-          for(const name of names){
-            let file=require.resolve(name+'/package.json');
-            out[name]=JSON.parse(fs.readFileSync(file,'utf8')).version;
+          const path=require('node:path');
+          function versionOf(name){
+            let dir=path.dirname(require.resolve(name));
+            while(true){
+              const p=path.join(dir,'package.json');
+              if(fs.existsSync(p)){
+                const x=JSON.parse(fs.readFileSync(p,'utf8'));
+                if(x.name===name) return x.version;
+              }
+              const parent=path.dirname(dir);
+              if(parent===dir) throw new Error('PACKAGE_IDENTITY_MISSING:'+name);
+              dir=parent;
+            }
           }
-          console.log('ROOT_DEPENDENCY_VERSIONS='+JSON.stringify(out));
+          const out={swisseph:versionOf('swisseph'),luxon:versionOf('luxon')};
+          console.log('SEMANTIC_DEPENDENCY_VERSIONS='+JSON.stringify(out));
           console.log('NODE_RUNTIME='+JSON.stringify({node:process.version,tz:process.versions.tz,icu:process.versions.icu}));
           NODE
 
