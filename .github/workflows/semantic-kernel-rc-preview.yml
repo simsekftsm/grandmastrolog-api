@@ -1,0 +1,124 @@
+name: Semantic Kernel RC Preview Deployment
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [semantic-kernel-rc]
+    paths:
+      - 'delivery_runtime/**'
+      - 'gm_integration/**'
+      - 'integration-server.js'
+      - '.github/workflows/semantic-kernel-rc-preview.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_x74ux30dPQwWNHy4a8wCkiMx
+      VERCEL_PROJECT_ID: prj_XhDus3tQsyiLxrPccbQteXLwbB2a
+      GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Require deploy and trust material
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}" || { echo 'BLOCKED: VERCEL_TOKEN_MISSING'; exit 1; }
+          test -n "${GM_API_SECRET:-}" || { echo 'BLOCKED: GM_API_SECRET_MISSING'; exit 1; }
+
+      - name: Re-run semantic and legacy acceptance before deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          node --test delivery_runtime/semantic_kernel/tests/*.test.js
+          (
+            cd delivery_runtime
+            mapfile -t LEGACY < <(find tests -maxdepth 1 -name '*.test.js' ! -name 'semantic-kernel.test.js' -print | sort)
+            node --test "${LEGACY[@]}"
+          )
+          node --test integration_tests/natal-evidence.test.mjs integration_tests/e2e-runtime.test.mjs
+
+      - name: Deploy exact RC as Vercel preview
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN" --cwd=delivery_runtime
+          npx --yes vercel@latest build --prod --token="$VERCEL_TOKEN" --cwd=delivery_runtime
+          URL="$(npx --yes vercel@latest deploy --prebuilt --token="$VERCEL_TOKEN" --cwd=delivery_runtime)"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "PREVIEW_URL=$URL" >> "$GITHUB_ENV"
+          echo "RC preview: $URL" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify preview source and health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in {1..20}; do
+            STATUS="$(curl -sS -o /tmp/health.json -w '%{http_code}' "$PREVIEW_URL/api/health" || true)"
+            [ "$STATUS" = 200 ] && break
+            sleep 3
+          done
+          test "$STATUS" = 200
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const x=JSON.parse(fs.readFileSync('/tmp/health.json','utf8'));
+          const {sourceProvenance}=require('./delivery_runtime/lib/source-provenance');
+          if(x.ok!==true) throw new Error('HEALTH_NOT_OK');
+          if(x.source_provenance?.fingerprint!==sourceProvenance().fingerprint) throw new Error('PREVIEW_SOURCE_FINGERPRINT_MISMATCH');
+          if(x.final_delivery_authorized!==true) throw new Error('PREVIEW_FINAL_DELIVERY_NOT_AUTHORIZED');
+          NODE
+
+      - name: Physical semantic E2E through preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const {pathToFileURL}=require('node:url');
+          (async()=>{
+            const m=await import(pathToFileURL(process.cwd()+'/gm_integration/natal-evidence.js'));
+            const birth={request_id:'semantic-kernel-preview-001',birth:{date:'2000-01-01',time:'12:00:00',timezone:'Europe/Istanbul',latitude:39.9208,longitude:32.8541,district:'SyntheticDistrict',city:'SyntheticCity'}};
+            const ev=m.buildNatalBindingInput(birth);
+            const body={binding_input:ev.binding_input,semantic_dependencies:m.buildSemanticDependencyEvidence()};
+            fs.writeFileSync('/tmp/e2e.json',JSON.stringify(body));
+            const {signTrustedRequest}=require('./delivery_runtime/lib/trust-boundary');
+            const s=signTrustedRequest({secret:process.env.GM_API_SECRET,routeId:'e2e-natal',body});
+            fs.writeFileSync('/tmp/seal.json',JSON.stringify(s));
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+          TS="$(node -p "require('/tmp/seal.json').timestamp")"
+          SIG="$(node -p "require('/tmp/seal.json').signature")"
+          STATUS="$(curl -sS -o /tmp/e2e-out.json -w '%{http_code}' -X POST "$PREVIEW_URL/api/e2e-natal" \
+            -H 'content-type: application/json' -H "authorization: Bearer $GM_API_SECRET" \
+            -H 'x-gm-evidence-source: grandmastrolog-api' -H "x-gm-evidence-timestamp: $TS" \
+            -H "x-gm-evidence-signature: $SIG" --data-binary @/tmp/e2e.json)"
+          if [ "$STATUS" != 200 ]; then
+            node - <<'NODE'
+          const fs=require('node:fs'); let x={}; try{x=JSON.parse(fs.readFileSync('/tmp/e2e-out.json','utf8'))}catch{}
+          console.log('RC_E2E_DIAG '+JSON.stringify({status:process.env.STATUS,code:x.code,upstream_status:x.upstream_status,provider:x.upstream_provider}));
+          NODE
+            exit 1
+          fi
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const x=JSON.parse(fs.readFileSync('/tmp/e2e-out.json','utf8'));
+          if(x.ok!==true || x.delivery?.delivery_state!=='final_delivery_validated') throw new Error('FINAL_DELIVERY_NOT_VALIDATED');
+          const s=x.semantic||{};
+          for(const k of ['build_id','transition_id','frozen_artifact_id','dependency_lock_id','narrative_anchor_id']) {
+            if(typeof s[k]!=='string' || !s[k]) throw new Error('SEMANTIC_IDENTITY_MISSING:'+k);
+          }
+          const raw=JSON.stringify(x);
+          for(const forbidden of ['raw_model_output','defeasible_interpretation_state','deterministic_derivation_state']) {
+            if(raw.includes(forbidden)) throw new Error('SEMANTIC_LEAK:'+forbidden);
+          }
+          NODE
