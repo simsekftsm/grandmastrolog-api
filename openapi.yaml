@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GrandMastrolog Learning API
-  version: 1.0.0
+  version: 1.1.0
 servers:
   - url: https://grandmastrolog-api-production.up.railway.app
 paths:
@@ -21,6 +21,100 @@ paths:
                     type: boolean
                   service:
                     type: string
+  /natal/deliver:
+    post:
+      operationId: deliverNatal
+      summary: Produce a final validated GrandMastrolog Natal delivery
+      description: Runs deterministic Swiss Ephemeris evidence through the trusted GrandMastrolog delivery chain and returns only final validated canonical output.
+      security:
+        - GmSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [request_id, birth]
+              properties:
+                request_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 96
+                birth:
+                  type: object
+                  additionalProperties: false
+                  required: [date, time, timezone, latitude, longitude, district, city]
+                  properties:
+                    date:
+                      type: string
+                      format: date
+                    time:
+                      type: string
+                      description: Local birth time in HH:MM or HH:MM:SS format.
+                    timezone:
+                      type: string
+                      description: IANA timezone, for example Europe/Istanbul.
+                    latitude:
+                      type: number
+                      minimum: -90
+                      maximum: 90
+                    longitude:
+                      type: number
+                      minimum: -180
+                      maximum: 180
+                    district:
+                      type: string
+                    city:
+                      type: string
+      responses:
+        "200":
+          description: Final validated canonical Natal output
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, request_id, contract_version, delivery_state, delivery_validator_enabled, final_delivery_authorized, output, evidence_sha256, provenance]
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  request_id:
+                    type: string
+                  contract_version:
+                    type: string
+                    const: gm.natal.v1
+                  delivery_state:
+                    type: string
+                    const: final_delivery_validated
+                  delivery_validator_enabled:
+                    type: boolean
+                    const: true
+                  final_delivery_authorized:
+                    type: boolean
+                    const: true
+                  output:
+                    type: string
+                  visual_attachments:
+                    type: array
+                    items: {}
+                  evidence_sha256:
+                    type: string
+                  provenance:
+                    type: object
+                    additionalProperties: true
+        "400":
+          description: Invalid request
+        "401":
+          description: Unauthorized
+        "422":
+          description: Deterministic astro source or semantic contract rejected the request
+        "502":
+          description: Downstream model, renderer, or delivery runtime failed closed
+        "503":
+          description: Trusted delivery runtime is unavailable or not authorized
+        "504":
+          description: Downstream model or delivery runtime timed out
   /context:
     get:
       operationId: getLearningContext

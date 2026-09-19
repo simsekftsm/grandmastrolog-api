@@ -1,0 +1,149 @@
+name: M1A-5 Blocked Root Diagnostic
+
+on:
+  push:
+    branches:
+      - m1a5-root-repair-runtime-4608
+    paths:
+      - '.github/workflows/m1a5-blocked-root-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      RUNTIME_SHA: b5ee123cecdbe220a8db7957a64f881738c07b24
+      FROZEN_SHA: fb1f0498cd0a7c49580cfde574a407e00e2bc20b
+      VERCEL_URL: https://grandmastrolog-delivery-runtime.vercel.app
+      GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+    steps:
+      - name: Checkout exact successor state
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify diagnostic boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GM_API_SECRET:-}" || { echo 'BLOCKED:GM_API_SECRET_MISSING'; exit 2; }
+          test -n "${GROQ_API_KEY:-}" || { echo 'BLOCKED:GROQ_API_KEY_MISSING'; exit 2; }
+          git cat-file -e "$RUNTIME_SHA^{commit}"
+          git diff --exit-code "$RUNTIME_SHA" HEAD -- delivery_runtime gm_integration integration-server.js openapi.yaml Dockerfile package.json package-lock.json
+          git fetch --no-tags --depth=1 origin "$FROZEN_SHA"
+          git show "FETCH_HEAD:m1a5_acceptance/corpus.normal-natal.v1.json" > /tmp/corpus.json
+          git show "FETCH_HEAD:m1a5_acceptance/frozen-manifest.json" > /tmp/manifest.json
+          python3 - <<'PY'
+          import hashlib,json
+          raw=open('/tmp/corpus.json','rb').read()
+          m=json.load(open('/tmp/manifest.json',encoding='utf-8'))
+          assert hashlib.sha256(raw).hexdigest()==m['corpus_sha256']
+          print('FROZEN_CORPUS_IDENTITY=PASS')
+          PY
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Diagnose exact frozen requests safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('node:fs');
+          const {buildNatalBindingInput}=require('./gm_integration/natal-evidence.js');
+          const {signTrustedRequest}=require('./delivery_runtime/lib/trust-boundary.js');
+          const {GROQ_MAX_OUTPUT_TOKENS,groqGenerationFormat,groqModelInstructions}=require('./delivery_runtime/lib/groq-binding.js');
+
+          const corpus=JSON.parse(fs.readFileSync('/tmp/corpus.json','utf8'));
+          const GAP_MS=70000;
+          let lastStart=0;
+
+          async function waitGap(){
+            const wait=Math.max(0,GAP_MS-(Date.now()-lastStart));
+            if(wait>0){
+              console.log('ROOT_DIAG_WAIT_MS='+wait);
+              await new Promise(r=>setTimeout(r,wait));
+            }
+            lastStart=Date.now();
+          }
+
+          async function vercelCall(t,bi){
+            const body={binding_input:bi};
+            const s=signTrustedRequest({secret:process.env.GM_API_SECRET,routeId:'e2e-natal',body});
+            const res=await fetch(process.env.VERCEL_URL+'/api/e2e-natal',{
+              method:'POST',
+              headers:{
+                'content-type':'application/json',
+                authorization:'Bearer '+process.env.GM_API_SECRET,
+                'x-gm-evidence-source':s.source,
+                'x-gm-evidence-timestamp':String(s.timestamp),
+                'x-gm-evidence-signature':s.signature
+              },
+              body:JSON.stringify(body),
+              signal:AbortSignal.timeout(70000)
+            });
+            let json={}; try{json=await res.json()}catch{}
+            console.log('PRODUCTION_UPSTREAM_DIAG '+JSON.stringify({
+              case_id:t.case_id,
+              outer_status:res.status,
+              ok:json?.ok??null,
+              code:json?.code??null,
+              upstream_provider:json?.upstream_provider??null,
+              upstream_status:json?.upstream_status??null
+            }));
+          }
+
+          async function groqCall(t,bi){
+            const res=await fetch('https://api.groq.com/openai/v1/responses',{
+              method:'POST',
+              headers:{
+                authorization:'Bearer '+process.env.GROQ_API_KEY,
+                'content-type':'application/json'
+              },
+              body:JSON.stringify({
+                model:'openai/gpt-oss-120b',
+                instructions:groqModelInstructions(bi.availability,bi.verified_evidence),
+                input:bi.semantic_input,
+                max_output_tokens:GROQ_MAX_OUTPUT_TOKENS,
+                text:{format:groqGenerationFormat(bi.verified_evidence,bi.availability)}
+              }),
+              signal:AbortSignal.timeout(70000)
+            });
+            let json={}; try{json=await res.json()}catch{}
+            const err=json?.error||{};
+            console.log('DIRECT_GROQ_DIAG '+JSON.stringify({
+              case_id:t.case_id,
+              status:res.status,
+              response_status:json?.status??null,
+              error_code:err?.code??null,
+              error_type:err?.type??null,
+              error_message:typeof err?.message==='string'?err.message.slice(0,1000):null,
+              failed_generation_present:Boolean(err?.failed_generation),
+              retry_after:res.headers.get('retry-after'),
+              limit_tokens:res.headers.get('x-ratelimit-limit-tokens'),
+              remaining_tokens:res.headers.get('x-ratelimit-remaining-tokens'),
+              reset_tokens:res.headers.get('x-ratelimit-reset-tokens')
+            }));
+          }
+
+          (async()=>{
+            for(const t of corpus.cases){
+              const built=buildNatalBindingInput({request_id:t.request_id,birth:t.birth});
+              const bi=built.binding_input;
+              await waitGap();
+              await vercelCall(t,bi);
+              await waitGap();
+              await groqCall(t,bi);
+            }
+          })().catch(e=>{
+            console.error('ROOT_DIAG_ERROR '+String(e?.name||'')+':'+String(e?.message||e));
+            process.exit(1);
+          });
+          NODE

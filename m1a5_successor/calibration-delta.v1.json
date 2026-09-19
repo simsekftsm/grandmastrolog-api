@@ -1,0 +1,12 @@
+{
+  "successor_delta_id": "m1a5-postfix-calibration-successor-v1",
+  "authority_runtime_source_commit": "b5ee123cecdbe220a8db7957a64f881738c07b24",
+  "base_rubric_id": "m1a5-semantic-quality-oracle-v1",
+  "mutation_scope": "canonical_language.required_markers_exact_once_in_order",
+  "superseded_markers": [
+    "Buraya kadarki ana yaşam alanları sende karşılık buluyor mu? **Evet / Hayır / Kısmen**",
+    "Bu anlattıklarım sende karşılık buluyor mu? **Evet / Hayır / Kısmen**"
+  ],
+  "authorized_marker": "Bu anlattıklarım sende karşılık buldu mu: *Evet / Hayır / Kısmen*",
+  "semantic_thresholds_unchanged": true
+}

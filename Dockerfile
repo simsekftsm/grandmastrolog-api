@@ -22,4 +22,4 @@ RUN pip3 install --no-cache-dir --break-system-packages Pillow==11.3.0 reportlab
 ENV NODE_ENV=production
 ENV PYTHON_BIN=python3
 
-CMD ["node", "index.js"]
+CMD ["node", "integration-server.js"]

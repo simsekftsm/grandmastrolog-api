@@ -1,0 +1,72 @@
+{
+  "rubric_id": "m1a5-semantic-quality-oracle-v1",
+  "frozen_before_first_run": true,
+  "scope": "final_user_visible_normal_natal",
+  "required_dimensions": [
+    "contradiction",
+    "specificity",
+    "repetition",
+    "section_distinction",
+    "canonical_language",
+    "counterexample_specificity"
+  ],
+  "classification": {
+    "PASS": "all required dimensions pass for every corpus case and the cross-case counterexample test passes",
+    "FAIL": "one or more deterministic frozen quality criteria are violated by a completed production response",
+    "UNKNOWN": "the production response completed but the frozen oracle cannot safely determine a required criterion",
+    "BLOCKED": "required secret, network, production dependency, or production response is unavailable so quality cannot be judged"
+  },
+  "canonical_language": {
+    "required_prefix": "---\n> # • NATAL (DOĞUM) HARİTAN •\n",
+    "required_markers_exact_once_in_order": [
+      "> # • NATAL (DOĞUM) HARİTAN •",
+      "> ## • PROFİLİN •",
+      "> ## • HARİTANIN ÖZÜ •",
+      "> ## • PARA & KARİYER •",
+      "> ## • İLİŞKİLER •",
+      "> ## • AİLE •",
+      "> ## • KARMALAR •",
+      "Buraya kadarki ana yaşam alanları sende karşılık buluyor mu? **Evet / Hayır / Kısmen**",
+      "Bu anlattıklarım sende karşılık buluyor mu? **Evet / Hayır / Kısmen**",
+      "Natal kapısı tamamlandı; bundan sonra doğrudan istediğin konuya girebiliriz. Kariyer/para, ilişki, aile, zamanlama, Vedik/Jyotish, kör nokta-gölge ya da başka bir mesele sorabilirsin. İstersen “açılım listesi” yazıp bütün görünür açılımları da görebilirsin."
+    ],
+    "forbidden_visible_tokens": [
+      "semantic_payload",
+      "verified_evidence",
+      "binding_input",
+      "raw_model_output",
+      "validation_metadata",
+      "evidence_bindings"
+    ]
+  },
+  "contradiction": {
+    "require_all_canonical_placement_lines_match_verified_evidence": true,
+    "max_direct_body_planet_sign_contradictions": 0
+  },
+  "specificity": {
+    "anchor_subjects": [
+      "sun",
+      "moon",
+      "ascendant",
+      "mercury",
+      "venus",
+      "mars",
+      "mc"
+    ],
+    "minimum_distinct_correct_body_anchors": 2,
+    "minimum_total_body_words": 150,
+    "minimum_required_section_words": 12
+  },
+  "repetition": {
+    "max_exact_duplicate_required_section_bodies": 0,
+    "max_pairwise_body_trigram_containment": 0.7
+  },
+  "section_distinction": {
+    "max_pairwise_required_section_token_jaccard": 0.72,
+    "minimum_distinct_tokens_per_required_section": 10
+  },
+  "counterexample_specificity": {
+    "minimum_own_anchor_score": 2,
+    "minimum_margin_over_best_other_case": 1
+  }
+}
