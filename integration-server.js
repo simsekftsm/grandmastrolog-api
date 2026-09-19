@@ -172,12 +172,21 @@ async function handleNatalDeliver(req, res) {
   }
 
   const delivery = result.delivery;
+  const semantic = result.semantic;
+  const semanticBinding = delivery?.semantic_binding;
   if (
     result.delivery_validator_enabled !== true ||
     result.final_delivery_authorized !== true ||
     delivery?.delivery_state !== 'final_delivery_validated' ||
     typeof delivery?.canonical_markdown !== 'string' ||
-    !delivery.canonical_markdown
+    !delivery.canonical_markdown ||
+    !semantic ||
+    !semanticBinding ||
+    semanticBinding.semantic_artifact_id !== semantic.semantic_artifact_id ||
+    semanticBinding.frozen_artifact_sha256 !== semantic.frozen_artifact_sha256 ||
+    semanticBinding.build_id !== semantic.build_id ||
+    semanticBinding.transition_id !== semantic.transition_id ||
+    semanticBinding.dependency_lock_id !== semantic.dependency_lock_id
   ) {
     return json(res, 502, { ok: false, code: 'FINAL_DELIVERY_INVARIANT_FAILED' });
   }
