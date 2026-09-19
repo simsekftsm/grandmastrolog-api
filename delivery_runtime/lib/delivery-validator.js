@@ -123,20 +123,34 @@ function verifyPhysicalSourceProvenance() {
   });
 }
 
-function verifyDeploymentProvenance(runtimeEnv = process.env) {
+function verifyDeploymentProvenance(runtimeEnv = process.env, options = {}) {
   const deploymentId = String(runtimeEnv.VERCEL_DEPLOYMENT_ID || '');
   const projectId = String(runtimeEnv.VERCEL_PROJECT_ID || '');
   const environment = String(runtimeEnv.VERCEL_ENV || '');
-  if (projectId !== EXPECTED_PROJECT_ID || environment !== 'production' || !/^dpl_[A-Za-z0-9]+$/.test(deploymentId)) {
+  const previewAuthorized =
+    options.allowPreview === true &&
+    environment === 'preview' &&
+    String(runtimeEnv.GM_SEMANTIC_RC_PREVIEW_AUTHORIZED || '') === 'true';
+  const environmentAccepted = environment === 'production' || previewAuthorized;
+  if (
+    projectId !== EXPECTED_PROJECT_ID ||
+    !environmentAccepted ||
+    !/^dpl_[A-Za-z0-9]+$/.test(deploymentId)
+  ) {
     throw new DeliveryValidationError(503, 'DEPLOYMENT_PROVENANCE_MISMATCH');
   }
-  return Object.freeze({ deployment_id: deploymentId, project_id: projectId, environment });
+  return Object.freeze({
+    deployment_id:deploymentId,
+    project_id:projectId,
+    environment,
+    rc_preview_authorized:previewAuthorized
+  });
 }
 
-function defaultProvenanceVerifier(runtimeEnv) {
+function defaultProvenanceVerifier(runtimeEnv, options = {}) {
   return {
     source: verifyPhysicalSourceProvenance(),
-    deployment: verifyDeploymentProvenance(runtimeEnv)
+    deployment: verifyDeploymentProvenance(runtimeEnv, options)
   };
 }
 
@@ -192,7 +206,7 @@ function validateFinalDelivery(bindingInput, semanticPayload, options = {}) {
     throw new DeliveryValidationError(422, 'NON_DETERMINISTIC_CANONICAL_RENDER');
   }
 
-  const provenance = provenanceVerifier(runtimeEnv);
+  const provenance = provenanceVerifier(runtimeEnv,{allowPreview:options.allowPreview === true});
   if (!provenance || !provenance.source || !provenance.deployment) {
     throw new DeliveryValidationError(503, 'PROVENANCE_REQUIRED');
   }
