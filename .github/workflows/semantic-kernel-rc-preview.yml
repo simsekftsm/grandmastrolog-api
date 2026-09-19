@@ -8,6 +8,8 @@ on:
       - 'delivery_runtime/**'
       - 'gm_integration/**'
       - 'integration-server.js'
+      - 'integration_tests/**'
+      - 'package.json'
       - '.github/workflows/semantic-kernel-rc-preview.yml'
 
 permissions:
@@ -56,7 +58,7 @@ jobs:
           # remotely so preview-scoped secrets remain server-side and no
           # production-target prebuilt artifact is promoted by accident.
           npx --yes vercel@latest pull --yes --environment=preview --token="$VERCEL_TOKEN" --cwd=delivery_runtime
-          URL="$(npx --yes vercel@latest deploy --yes --token="$VERCEL_TOKEN" --cwd=delivery_runtime --env GM_SEMANTIC_RC_PREVIEW_AUTHORIZED=true)"
+          URL="$(npx --yes vercel@latest deploy --yes --token="$VERCEL_TOKEN" --cwd=delivery_runtime --env GM_FINAL_DELIVERY_AUTHORIZED=true --env GM_SEMANTIC_RC_PREVIEW_AUTHORIZED=true)"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "PREVIEW_URL=$URL" >> "$GITHUB_ENV"
           echo "RC preview: $URL" >> "$GITHUB_STEP_SUMMARY"
@@ -125,4 +127,36 @@ jobs:
           for(const forbidden of ['raw_model_output','defeasible_interpretation_state','deterministic_derivation_state']) {
             if(raw.includes(forbidden)) throw new Error('SEMANTIC_LEAK:'+forbidden);
           }
+          NODE
+
+      - name: GM character and narrative agency regression on physical preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import {evaluate} from './m1a5_acceptance/oracle-core.mjs';
+          const x=JSON.parse(fs.readFileSync('/tmp/e2e-out.json','utf8'));
+          const input=JSON.parse(fs.readFileSync('/tmp/e2e.json','utf8'));
+          const rubric=JSON.parse(fs.readFileSync('./m1a5_acceptance/rubric.semantic-quality.v1.json','utf8'));
+          const old=[
+            'Buraya kadarki ana yaşam alanları sende karşılık buluyor mu? **Evet / Hayır / Kısmen**',
+            'Bu anlattıklarım sende karşılık buluyor mu? **Evet / Hayır / Kısmen**'
+          ];
+          const current='Bu anlattıklarım sende karşılık buldu mu: *Evet / Hayır / Kısmen*';
+          const markers=rubric.canonical_language.required_markers_exact_once_in_order;
+          const first=Math.min(...old.map((m)=>markers.indexOf(m)).filter((i)=>i>=0));
+          rubric.canonical_language.required_markers_exact_once_in_order=markers.filter((m)=>!old.includes(m));
+          rubric.canonical_language.required_markers_exact_once_in_order.splice(first,0,current);
+          const result=evaluate(x.delivery.canonical_markdown,input.binding_input.verified_evidence,rubric);
+          const required=['contradiction','specificity','repetition','section_distinction','canonical_language'];
+          const verdicts=Object.fromEntries(required.map((k)=>[k,result.dimensions[k]?.verdict]));
+          console.log('GM_CHARACTER_REGRESSION='+JSON.stringify(verdicts));
+          if(required.some((k)=>verdicts[k]!=='PASS')) {
+            console.log(JSON.stringify(result.dimensions));
+            throw new Error('GM_CHARACTER_REGRESSION_FAILED');
+          }
+          const output=x.delivery.canonical_markdown;
+          if(/claim_[a-f0-9]{16,}/u.test(output)) throw new Error('MECHANICAL_CLAIM_ID_LEAK');
+          if(/(?:^|\n)\s*[-*]\s+(?:SUPPORTED|ROBUST|PRIMARY|Claim)/u.test(output)) throw new Error('MECHANICAL_CLAIM_LIST_REGRESSION');
           NODE
