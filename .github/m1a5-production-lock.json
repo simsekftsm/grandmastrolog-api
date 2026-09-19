@@ -1,17 +1,29 @@
 {
-  "acceptance_id": "M1A-5_GEMINI_3_1_PRODUCTION_FINAL",
-  "acceptance_run_id": 35410314530,
-  "acceptance_run_attempt": 3,
-  "deployment_id": "dpl_Dun8GR2xj44YNL1mna44NASbWx1G",
+  "acceptance_id": "M1A-5_GROQ_CANONICAL_REACCEPTANCE",
+  "acceptance_run_id": 35413468775,
+  "acceptance_run_attempt": 2,
+  "acceptance_job_id": 105830209237,
+  "acceptance_artifact_id": 10576508336,
+  "acceptance_artifact_sha256": "8e1ddbb71a16e3dca8fcf093226b6ffd357682693a0c81e1f83699915f0103c3",
+  "deployment_id": "dpl_BrNsyFCf781HuFg8siv5XcNZ3414",
   "project_id": "prj_XhDus3tQsyiLxrPccbQteXLwbB2a",
-  "runtime_source_commit": "1689026e137266c0ecc72ac7bf51d68f20497fb2",
-  "deployed_controller_commit": "b1b3ca2a0cde0ed6abb63282f6ab96b4c0ff668f",
-  "source_fingerprint": "a93fc65b38808c6e27167bc5a44663bb7aa1e89e60885b6aca4dea854182d04d",
-  "source_provenance_blob_sha": "b1a912a34398ceacc4532e70f1db81919daf5b50",
-  "provider": "google",
-  "model": "gemini-3.1-flash-lite",
-  "semantic_normalizer": "formatting_only_lexical_invariant_v1",
-  "frozen_corpus_sha256": "d9d0e964d28b0fbbc70f4767a75283a6056524fed945dd39710a11693c0987c",
-  "frozen_rubric_sha256": "9cd31fe783d49326e16988dbd3c63d148f98d9343c0b2991bb9209011ab71ad4",
+  "railway_deployment_id": "8c5c1843-0022-4e05-9350-3008730b3087",
+  "runtime_source_commit": "b5ee123cecdbe220a8db7957a64f881738c07b24",
+  "source_fingerprint": "0b7e1b7aa335918b795bc87de6a73f27ea4d6f6e8b8fc8ac50d2600d3f4f006c",
+  "provider": "groq",
+  "model": "openai/gpt-oss-120b",
+  "runtime_regression": "108/108 PASS",
+  "integration_regression": "10/10 PASS",
+  "live_cases": {
+    "NATAL_SYN_01": "PASS",
+    "NATAL_SYN_02": "PASS",
+    "NATAL_SYN_03": "PASS"
+  },
+  "counterexample_specificity": {
+    "NATAL_SYN_01": "PASS",
+    "NATAL_SYN_02": "PASS",
+    "NATAL_SYN_03": "PASS"
+  },
+  "production_provenance": "PASS",
   "production_acceptance": "PASS"
 }
