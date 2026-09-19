@@ -1,0 +1,55 @@
+'use strict';
+
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
+const {
+  buildFrozenNatalArtifact,verifyFrozenArtifact,backwardSlice,forwardSlice,
+  counterfactualSlice,sameSemanticSnapshot,SemanticKernelError
+}=require('../kernel');
+const {validateNarrative,NarrativeBoundaryError}=require('../narrative-boundary');
+const {AtomicSemanticStore}=require('../transaction-store');
+const {partitionWorlds}=require('../uncertainty');
+
+const subjects=['sun','moon','ascendant','mercury','venus','mars','jupiter','saturn','uranus','neptune','pluto','north_node','mc'];
+function binding(){return {
+  request_id:'sk-test',semantic_input:'x',
+  availability:{ayin_gokyuzu_haritasi:false,element_dengen:false,sinerji:false,senin_yolun:false,hellenistic:false,jyotish:false,esoteric:false,sade_sati:false,rahu_ketu:false,retrogrades:false,lilith:false,chiron:false,vertex:false,part_of_fortune:false,fixed_stars:false},
+  verified_evidence:subjects.map((subject_id,i)=>({
+    evidence_id:`ev_${subject_id}`,source_ref:`astro://engine/${subject_id}`,kind:'placement',subject_id,
+    semantic_value:`${subject_id}: Koç ${i}°00′`,sign:'Koç',degree:`${i}°00′`,house:'1. ev',retrograde:false,verification_state:'verified'
+  }))
+};}
+const deps={
+  ephemeris_engine:{version:'swisseph-test',sha256:'1'.repeat(64)},
+  ephemeris_data:{version:'seas_18',sha256:'2'.repeat(64)},
+  timezone_data:{version:'tz-test',sha256:'3'.repeat(64)},
+  calculation_implementation:{version:'calc-test',sha256:'4'.repeat(64)},
+  coordinate_canonicalization:{version:'coord-test',sha256:'5'.repeat(64)},
+  house_calculation:{version:'house-test',sha256:'6'.repeat(64)}
+};
+function artifact(input=binding(),extra={}){return buildFrozenNatalArtifact({bindingInput:input,semanticDependencies:deps,localDependencies:{kernel_source:'k',astroir_schema:'s'},...extra});}
+function narrative(a){
+  const bySec=new Map();
+  for(const c of a.defeasible_interpretation_state.claims){if(!bySec.has(c.section_id))bySec.set(c.section_id,[]);bySec.get(c.section_id).push(c);}
+  return {
+    sections:['profilin','haritanin_ozu','para_kariyer','iliskiler','aile','karmalar'].map((id)=>({
+      section_id:id,paragraphs:[{text:bySec.get(id)[0].proposition+' Bu doğrulanmış göstergeler birlikte okunur.',claim_refs:[bySec.get(id)[0].claim_state_id]}]
+    })),
+    personal_seal:{motto:bySec.get('profilin')[0].proposition,claim_refs:[bySec.get('profilin')[0].claim_state_id]}
+  };
+}
+
+test('semantic determinism',()=>{const a=artifact(),b=artifact();assert.equal(a.artifact_sha256,b.artifact_sha256);assert.ok(sameSemanticSnapshot(a,b));});
+test('same version but changed dependency bytes changes Build ID',()=>{const changed={...deps,ephemeris_data:{version:'seas_18',sha256:'9'.repeat(64)}};const a=artifact(),b=buildFrozenNatalArtifact({bindingInput:binding(),semanticDependencies:changed,localDependencies:{kernel_source:'k',astroir_schema:'s'}});assert.notEqual(a.build_id,b.build_id);});
+test('provenance completeness and freeze validate',()=>assert.equal(verifyFrozenArtifact(artifact()),true));
+test('backward and forward slices expose lineage',()=>{const a=artifact(),c=a.defeasible_interpretation_state.claims[0];assert.ok(backwardSlice(a,c.claim_state_id).some((x)=>x.startsWith('evidence:')));assert.ok(forwardSlice(a,c.provenance.root_evidence_ids[0]).includes(`claim:${c.claim_state_id}`));});
+test('counterfactual slice returns root changes',()=>{const a=artifact(),c=a.defeasible_interpretation_state.claims[0];assert.ok(counterfactualSlice(a,c.claim_state_id).minimum_root_changes.length>0);});
+test('unauthorized semantic delta fails closed',()=>{const parent=artifact(),input=binding();input.verified_evidence[0]={...input.verified_evidence[0],sign:'Boğa'};assert.throws(()=>artifact(input,{parentAcceptedArtifact:parent,authorityEnvelope:{authority_id:'narrow',write_scopes:['$.defeasible_interpretation_state']}}),(e)=>e instanceof SemanticKernelError&&e.code==='UNAUTHORIZED_SEMANTIC_DELTA');});
+test('narrative cannot reference unknown claim',()=>{const a=artifact(),n=narrative(a);n.sections[0].paragraphs[0].claim_refs=['claim_'+'0'.repeat(64)];assert.throws(()=>validateNarrative(a,n),NarrativeBoundaryError);});
+test('unsupported causal invention fails closed',()=>{const a=artifact(),n=narrative(a);n.sections[0].paragraphs[0].text='Çocukluk travman yüzünden böyle davranırsın ve profil göstergelerin bunu kanıtlar.';assert.throws(()=>validateNarrative(a,n),(e)=>e.code==='UNSUPPORTED_CAUSAL_CLAIM');});
+test('claim anchored narrative cannot mutate frozen artifact',()=>{const a=artifact(),before=a.artifact_sha256;const ledger=validateNarrative(a,narrative(a));assert.match(ledger.narrative_anchor_id,/^nar_/);assert.equal(a.artifact_sha256,before);});
+test('crash before atomic rename preserves accepted state',()=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gm-sk-')),store=new AtomicSemanticStore(dir),a=artifact();store.commit(a);const input=binding();input.verified_evidence[0]={...input.verified_evidence[0],degree:'1°01′'};const b=artifact(input);assert.throws(()=>store.commit(b,{crashBeforeRename:true}),/SIMULATED_CRASH/);assert.equal(store.readAccepted().artifact_sha256,a.artifact_sha256);assert.equal(store.verifyConsistency().state,'CONSISTENT');});
+test('possible worlds distinguish robust and unstable',()=>{const p=partitionWorlds([{world_id:'a',start:'15:20',end:'15:30',claim_states:{x:'SUPPORTED',y:'SUPPORTED'}},{world_id:'b',start:'15:30',end:'15:40',claim_states:{x:'SUPPORTED',y:'REFUTED'}}]);assert.equal(p.robustness.x,'ROBUST');assert.equal(p.robustness.y,'UNSTABLE');});
