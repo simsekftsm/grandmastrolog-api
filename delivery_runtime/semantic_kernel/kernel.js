@@ -146,7 +146,11 @@ function authorizeDelta(delta,envelope){
   const scopes=Array.isArray(envelope?.write_scopes)?envelope.write_scopes:[];
   if(!scopes.length) fail('AUTHORITY_ENVELOPE_REQUIRED');
   for(const item of delta){
-    if(item.path==='
+    if(item.path==='$' && !scopes.includes('$')) fail('UNAUTHORIZED_SEMANTIC_DELTA',item.path,item.path);
+    if(item.path!=='$' && !scopes.some((scope)=>scope==='$'||item.path===scope||item.path.startsWith(`${scope}.`))) {
+      fail('UNAUTHORIZED_SEMANTIC_DELTA',item.path,item.path);
+    }
+  }
 }
 function transitionId(parentIdentity,envelope,delta,candidateCore){
   return `tx_${sha256({parent:parentIdentity||'GENESIS',authority:envelope,delta,resulting_semantic_sha256:sha256(candidateCore)})}`;
