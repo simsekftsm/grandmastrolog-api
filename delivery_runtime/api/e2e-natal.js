@@ -60,7 +60,7 @@ module.exports = async function e2eNatal(req, res) {
     const materialized=toLegacySemanticPayload(frozenArtifact,narrative,bindingInput,{CONTRACT_VERSION,SCHEMA_ID,SCHEMA_VERSION,PLACEMENT_ORDER});
     const canonicalPayload=materialized.semantic_payload;
     makeValidatedEnvelope(canonicalPayload,evidenceMap,availability);
-    const delivery=validateFinalDelivery(bindingInput,canonicalPayload,{semanticArtifact:frozenArtifact,requireSemanticFreeze:true});
+    const delivery=validateFinalDelivery(bindingInput,canonicalPayload,{semanticArtifact:frozenArtifact,requireSemanticFreeze:true,allowPreview:process.env.GM_SEMANTIC_RC_PREVIEW_AUTHORIZED==='true'});
     return res.status(200).json({
       ok:true,request_id:bindingInput.request_id,model_binding:MODEL_BINDING,provider:'groq',model:DEFAULT_GROQ_MODEL,
       delivery_validator_enabled:true,final_delivery_authorized:true,delivery,
