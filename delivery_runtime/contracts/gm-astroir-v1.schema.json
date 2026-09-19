@@ -1,0 +1,23 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"gm_astroir_v1",
+  "title":"GrandMastrolog AstroIR v1",
+  "type":"object",
+  "required":["astroir_version","schema_id","kernel_id","build_id","dependency_lock_id","canonical_input_sha256","observed_calculated_state","deterministic_derivation_state","defeasible_interpretation_state","dependency_graph","transition","frozen","artifact_sha256"],
+  "properties":{
+    "astroir_version":{"const":"gm.astroir.v1"},
+    "schema_id":{"const":"gm_astroir_v1"},
+    "kernel_id":{"const":"gm_semantic_kernel_v1"},
+    "build_id":{"type":"string","pattern":"^build_[a-f0-9]{64}$"},
+    "dependency_lock_id":{"type":"string","pattern":"^dep_[a-f0-9]{64}$"},
+    "canonical_input_sha256":{"type":"string","pattern":"^[a-f0-9]{64}$"},
+    "observed_calculated_state":{"type":"object"},
+    "deterministic_derivation_state":{"type":"object"},
+    "defeasible_interpretation_state":{"type":"object"},
+    "dependency_graph":{"type":"object"},
+    "transition":{"type":"object"},
+    "frozen":{"const":true},
+    "artifact_sha256":{"type":"string","pattern":"^[a-f0-9]{64}$"}
+  },
+  "additionalProperties":false
+}
