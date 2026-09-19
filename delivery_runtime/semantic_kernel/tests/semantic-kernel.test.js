@@ -325,9 +325,11 @@ test('identity migration carries derivation build and transition ids',()=>{
 
 test('narrative boundary permits anchored human synthesis and metaphor',()=>{
   const a=artifact(), n=narrative(a);
-  const claim=a.defeasible_interpretation_state.claims.find((x)=>x.section_id==='profilin');
+  const claim=a.defeasible_interpretation_state.claims.find(
+    (x)=>x.provenance.rule_ids.includes('profile.triad.primary.v1')
+  );
   n.sections[0].paragraphs[0]={
-    text:'Güneş, Ay ve Yükselen aynı masada oturuyor gibi; kimlik, duygu ve dış tavır birbirini ezmeden birlikte okunuyor.',
+    text:'Kimlik odağı, duygusal işleyiş ve dışa yansıyan yaklaşım aynı masada oturuyor gibi; üç eksen birbirini ezmeden birlikte okunuyor.',
     claim_refs:[claim.claim_state_id]
   };
   assert.match(validateNarrative(a,n).narrative_anchor_id,/^nar_/);
