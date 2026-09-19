@@ -47,7 +47,7 @@ function narrativeFor(binding){
       section_id:id,
       paragraphs:[{text:bySection.get(id)[0].proposition+' Bu doğrulanmış göstergeler birlikte okunur.',claim_refs:[bySection.get(id)[0].claim_state_id]}]
     })),
-    personal_seal:{motto:bySection.get('profilin')[0].proposition,claim_refs:[bySection.get('profilin')[0].claim_state_id]}
+    personal_seal:{motto:'Kimlik odağında üç eksen birlikte çalışır; profil yorumu tek bir yerleşime indirgenmez.',claim_refs:[bySection.get('profilin')[0].claim_state_id]}
   };
 }
 async function invoke(mutator=(x)=>x){
