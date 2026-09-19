@@ -1,17 +1,16 @@
-# GrandMastrolog Delivery Runtime — M1A-1
+# GrandMastrolog Delivery Runtime — M1A-4
 
-This directory is an isolated delivery-runtime root. It does not change the existing GrandMastrolog learning/memory API behavior.
+This directory is the isolated GrandMastrolog delivery-runtime boundary. It preserves the unrelated existing GrandMastrolog API behavior while enforcing the accepted delivery path.
 
-## Scope
+## Current accepted runtime scope
 
-M1A-1 establishes one thing only: a mandatory HTTP delivery boundary that is fail-closed by default.
-
-- `GET /api/health` proves the runtime is alive and reports stage capabilities.
-- `POST /api/delivery` deliberately returns `503 M1A_1_FOUNDATION_ONLY`.
-- Raw model text is never forwarded at this stage.
-
-M1A-1 does **not** implement the M1A-2 structured output contract, M1A-3 canonical renderer, M1A-4 delivery validator, or any R2/R3/R4 behavior.
+- `GET /api/health` reports the active M1A-4 capabilities and deployment/source provenance.
+- `POST /api/model-natal` accepts the strict `gm.natal.v1` structured semantic contract and fails closed on invalid or unsafe model output.
+- `POST /api/render-natal` applies the deterministic canonical renderer.
+- Trust/provenance checks are mandatory for privileged delivery surfaces.
+- Final delivery is gated by the delivery validator and production authorization.
+- Raw model output is not an authorized delivery path.
 
 ## Acceptance
 
-`npm test` must pass. The delivery endpoint must continue to reject every raw output until the later gates are explicitly implemented and independently accepted.
+Release acceptance is valid only when the exact runtime candidate and the bound production deployment pass the required regressions and live probes. Pre-merge evidence is not inherited by a different post-merge candidate.
