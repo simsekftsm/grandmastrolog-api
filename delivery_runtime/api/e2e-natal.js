@@ -64,7 +64,7 @@ module.exports = async function e2eNatal(req, res) {
     return res.status(200).json({
       ok:true,request_id:bindingInput.request_id,model_binding:MODEL_BINDING,provider:'groq',model:DEFAULT_GROQ_MODEL,
       delivery_validator_enabled:true,final_delivery_authorized:true,delivery,
-      semantic:{astroir_version:frozenArtifact.astroir_version,kernel_id:frozenArtifact.kernel_id,build_id:frozenArtifact.build_id,dependency_lock_id:frozenArtifact.dependency_lock_id,transition_id:frozenArtifact.transition.transition_id,frozen_artifact_sha256:frozenArtifact.artifact_sha256,narrative_anchor_id:materialized.narrative_anchor_ledger.narrative_anchor_id}
+      semantic:{astroir_version:frozenArtifact.astroir_version,kernel_id:frozenArtifact.kernel_id,build_id:frozenArtifact.build_id,dependency_lock_id:frozenArtifact.dependency_lock_id,semantic_artifact_id:frozenArtifact.semantic_artifact_id,transition_id:frozenArtifact.transition.transition_id,frozen_artifact_sha256:frozenArtifact.artifact_sha256,narrative_anchor_id:materialized.narrative_anchor_ledger.narrative_anchor_id}
     });
   } catch(error) {
     if(error instanceof DeliveryValidationError) return res.status(error.statusCode).json({ok:false,code:error.code,path:error.path});
