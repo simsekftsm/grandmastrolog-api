@@ -66,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           for i in {1..20}; do
-            if npx --yes vercel@latest curl /api/health --deployment "$PREVIEW_URL" --token="$VERCEL_TOKEN" -- --silent --show-error --fail-with-body > /tmp/health.json; then
+            if npx --yes vercel@latest curl /api/health --deployment "$PREVIEW_URL" -- --silent --show-error --fail-with-body > /tmp/health.json; then
               break
             fi
             sleep 3
@@ -101,7 +101,7 @@ jobs:
           NODE
           TS="$(node -p "require('/tmp/seal.json').timestamp")"
           SIG="$(node -p "require('/tmp/seal.json').signature")"
-          if ! npx --yes vercel@latest curl /api/e2e-natal --deployment "$PREVIEW_URL" --token="$VERCEL_TOKEN" -- \
+          if ! npx --yes vercel@latest curl /api/e2e-natal --deployment "$PREVIEW_URL" -- \
             --silent --show-error --fail-with-body --request POST \
             --header 'content-type: application/json' --header "authorization: Bearer $GM_API_SECRET" \
             --header 'x-gm-evidence-source: grandmastrolog-api' --header "x-gm-evidence-timestamp: $TS" \
