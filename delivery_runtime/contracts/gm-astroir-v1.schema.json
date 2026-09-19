@@ -41,20 +41,176 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     },
+    "semantic_artifact_id": {
+      "type": "string",
+      "pattern": "^sem_[a-f0-9]{64}$"
+    },
     "observed_calculated_state": {
-      "type": "object"
+      "type": "object",
+      "required": [
+        "evidence_catalog_sha256",
+        "placements",
+        "evidence_ids"
+      ],
+      "properties": {
+        "evidence_catalog_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "placements": {
+          "type": "array",
+          "minItems": 13,
+          "items": {
+            "$ref": "#/$defs/placement"
+          }
+        },
+        "evidence_ids": {
+          "type": "array",
+          "minItems": 13,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 96
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "deterministic_derivation_state": {
-      "type": "object"
+      "type": "object",
+      "required": [
+        "derivations"
+      ],
+      "properties": {
+        "derivations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/derivation"
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "defeasible_interpretation_state": {
-      "type": "object"
+      "type": "object",
+      "required": [
+        "claims"
+      ],
+      "properties": {
+        "claims": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/claim"
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "dependency_graph": {
-      "type": "object"
+      "type": "object",
+      "required": [
+        "nodes",
+        "edges"
+      ],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "edges": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "transition": {
-      "type": "object"
+      "type": "object",
+      "required": [
+        "transition_id",
+        "parent_accepted_artifact",
+        "authorized_change_set",
+        "authority",
+        "candidate_delta",
+        "accepted_semantic_delta",
+        "acceptance_policy",
+        "acceptance_evidence",
+        "resulting_semantic_artifact_id"
+      ],
+      "properties": {
+        "transition_id": {
+          "type": "string",
+          "pattern": "^tx_[a-f0-9]{64}$"
+        },
+        "parent_accepted_artifact": {},
+        "authorized_change_set": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "authority": {
+          "type": "string",
+          "minLength": 1
+        },
+        "candidate_delta": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "accepted_semantic_delta": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "acceptance_policy": {
+          "const": "gm.semantic.transaction.v1"
+        },
+        "acceptance_evidence": {
+          "type": "object",
+          "required": [
+            "capability_contracts_sha256",
+            "provenance_complete"
+          ],
+          "properties": {
+            "capability_contracts_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "provenance_complete": {
+              "const": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "resulting_semantic_artifact_id": {
+          "type": "string",
+          "pattern": "^sem_[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
     },
     "frozen": {
       "const": true
@@ -62,11 +218,250 @@
     "artifact_sha256": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
-    },
-    "semantic_artifact_id": {
-      "type": "string",
-      "pattern": "^sem_[a-f0-9]{64}$"
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "placement": {
+      "type": "object",
+      "required": [
+        "evidence_id",
+        "subject_id",
+        "sign",
+        "degree",
+        "house",
+        "retrograde",
+        "epistemic_status"
+      ],
+      "properties": {
+        "evidence_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96
+        },
+        "subject_id": {
+          "type": "string",
+          "enum": [
+            "sun",
+            "moon",
+            "ascendant",
+            "mercury",
+            "venus",
+            "mars",
+            "jupiter",
+            "saturn",
+            "uranus",
+            "neptune",
+            "pluto",
+            "north_node",
+            "mc"
+          ]
+        },
+        "sign": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48
+        },
+        "degree": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "house": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "retrograde": {
+          "type": "boolean"
+        },
+        "epistemic_status": {
+          "const": "ASTRONOMICAL_CALCULATED_FACT"
+        }
+      },
+      "additionalProperties": false
+    },
+    "derivation": {
+      "type": "object",
+      "required": [
+        "derivation_id",
+        "rule_id",
+        "doctrine_pack_id",
+        "proposition_id",
+        "parent_evidence_ids",
+        "lineage_id",
+        "epistemic_status"
+      ],
+      "properties": {
+        "derivation_id": {
+          "type": "string",
+          "pattern": "^drv_[a-f0-9]{64}$"
+        },
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "doctrine_pack_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "proposition_id": {
+          "type": "string",
+          "pattern": "^prop_[a-f0-9]{64}$"
+        },
+        "parent_evidence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 96
+          }
+        },
+        "lineage_id": {
+          "type": "string",
+          "pattern": "^lin_[a-f0-9]{64}$"
+        },
+        "epistemic_status": {
+          "const": "DETERMINISTIC_DERIVATION"
+        }
+      },
+      "additionalProperties": false
+    },
+    "claim": {
+      "type": "object",
+      "required": [
+        "proposition_id",
+        "claim_state_id",
+        "derivation_id",
+        "derivation_ids",
+        "section_id",
+        "proposition",
+        "status",
+        "robustness",
+        "salience",
+        "epistemic_status",
+        "provenance"
+      ],
+      "properties": {
+        "proposition_id": {
+          "type": "string",
+          "pattern": "^prop_[a-f0-9]{64}$"
+        },
+        "claim_state_id": {
+          "type": "string",
+          "pattern": "^claim_[a-f0-9]{64}$"
+        },
+        "derivation_id": {
+          "type": "string",
+          "pattern": "^drv_[a-f0-9]{64}$"
+        },
+        "derivation_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^drv_[a-f0-9]{64}$"
+          }
+        },
+        "section_id": {
+          "type": "string",
+          "enum": [
+            "profilin",
+            "haritanin_ozu",
+            "para_kariyer",
+            "iliskiler",
+            "aile",
+            "karmalar"
+          ]
+        },
+        "proposition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1600
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "SUPPORTED",
+            "REFUTED",
+            "UNKNOWN-UNRESOLVED",
+            "CONFLICTED",
+            "WEAKENED"
+          ]
+        },
+        "robustness": {
+          "type": "string",
+          "enum": [
+            "ROBUST",
+            "CONDITIONAL",
+            "BOUNDARY-SENSITIVE",
+            "UNSTABLE"
+          ]
+        },
+        "salience": {
+          "type": "string",
+          "enum": [
+            "PRIMARY",
+            "SUPPORTING",
+            "MINOR"
+          ]
+        },
+        "epistemic_status": {
+          "const": "INTERPRETIVE_CLAIM"
+        },
+        "provenance": {
+          "type": "object",
+          "required": [
+            "root_evidence_ids",
+            "lineage_id",
+            "lineage_ids",
+            "rule_id",
+            "rule_ids"
+          ],
+          "properties": {
+            "root_evidence_ids": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 96
+              }
+            },
+            "lineage_id": {
+              "type": "string",
+              "pattern": "^lin_[a-f0-9]{64}$"
+            },
+            "lineage_ids": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^lin_[a-f0-9]{64}$"
+              }
+            },
+            "rule_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "rule_ids": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
 }
