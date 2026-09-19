@@ -305,9 +305,28 @@ function verifyFrozenArtifact(artifact){
 }
 function sameSemanticSnapshot(a,b){return a.semantic_artifact_id===b.semantic_artifact_id&&a.build_id===b.build_id;}
 function independentSupportCount(artifact,claimIds){
-  const ids=Array.isArray(claimIds)?claimIds:[];
-  const claims=artifact.defeasible_interpretation_state.claims.filter((c)=>ids.includes(c.claim_state_id));
-  return new Set(claims.flatMap((c)=>c.provenance.lineage_ids || [c.provenance.lineage_id])).size;
+  const ids=new Set(Array.isArray(claimIds)?claimIds:[]);
+  const claims=artifact.defeasible_interpretation_state.claims.filter((c)=>ids.has(c.claim_state_id));
+  const propositionIds=new Set(claims.map((c)=>c.proposition_id));
+  const unique=new Map();
+  for(const d of artifact.deterministic_derivation_state.derivations){
+    if(!propositionIds.has(d.proposition_id)) continue;
+    const roots=[...new Set(d.parent_evidence_ids||[])].sort();
+    unique.set(roots.join('|'),new Set(roots));
+  }
+  const sets=[...unique.values()];
+  let best=0;
+  const search=(index,used,count)=>{
+    if(index>=sets.length){best=Math.max(best,count);return;}
+    search(index+1,used,count);
+    const current=sets[index];
+    if([...current].every((x)=>!used.has(x))){
+      const next=new Set(used); for(const x of current) next.add(x);
+      search(index+1,next,count+1);
+    }
+  };
+  search(0,new Set(),0);
+  return best;
 }
 
 module.exports={ASTROIR_VERSION,SCHEMA_ID,KERNEL_ID,REQUIRED_SECTIONS,SemanticKernelError,buildFrozenNatalArtifact,verifyFrozenArtifact,backwardSlice,forwardSlice,blameSlice,counterfactualSlice,planRebuild,semanticDiff,sameSemanticSnapshot,canonicalDependencyLock,canonicalizeBindingInput,independentSupportCount};
