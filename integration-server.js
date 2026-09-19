@@ -1,7 +1,7 @@
 import http from 'http';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { spawn } from 'child_process';
-import { buildNatalBindingInput, stableSerialize } from './gm_integration/natal-evidence.js';
+import { buildNatalBindingInput, buildSemanticDependencyEvidence, stableSerialize } from './gm_integration/natal-evidence.js';
 
 const EXTERNAL_PORT = Number(process.env.PORT || 3000);
 const LEGACY_PORT = Number(process.env.GM_LEGACY_INTERNAL_PORT || 3101);
@@ -126,7 +126,21 @@ async function handleNatalDeliver(req, res) {
     });
   }
 
-  const deliveryBody = { binding_input: evidence.binding_input };
+  let semanticDependencies;
+  try {
+    semanticDependencies = buildSemanticDependencyEvidence();
+  } catch (error) {
+    return json(res, 503, {
+      ok: false,
+      code: 'SEMANTIC_DEPENDENCY_LOCK_UNAVAILABLE',
+      detail_code: String(error.message || 'SEMANTIC_DEPENDENCY_UNKNOWN')
+    });
+  }
+
+  const deliveryBody = {
+    binding_input: evidence.binding_input,
+    semantic_dependencies: semanticDependencies
+  };
   let upstream;
   try {
     upstream = await fetch(DELIVERY_URL, {
@@ -188,7 +202,8 @@ async function handleNatalDeliver(req, res) {
       delivery_runtime: delivery.provenance,
       contract_sha256: delivery.contract_sha256,
       canonical_markdown_sha256: delivery.canonical_markdown_sha256,
-      delivery_binding_sha256: delivery.delivery_binding_sha256
+      delivery_binding_sha256: delivery.delivery_binding_sha256,
+      semantic: result.semantic
     }
   });
 }
