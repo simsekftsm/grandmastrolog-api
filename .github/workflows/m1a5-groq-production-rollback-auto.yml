@@ -23,7 +23,6 @@ jobs:
       VERCEL_PROJECT_ID: prj_XhDus3tQsyiLxrPccbQteXLwbB2a
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 
     steps:
       - name: Checkout rollback controller
@@ -38,7 +37,6 @@ jobs:
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}" || { echo "BLOCKED:VERCEL_TOKEN_MISSING"; exit 2; }
           test -n "${GM_API_SECRET:-}" || { echo "BLOCKED:GM_API_SECRET_MISSING"; exit 2; }
-          test -n "${GROQ_API_KEY:-}" || { echo "BLOCKED:GROQ_API_KEY_MISSING"; exit 2; }
           git cat-file -e "$GROQ_RUNTIME_SHA^{commit}"
           git checkout --detach "$GROQ_RUNTIME_SHA"
           test "$(node -e "process.stdout.write(require('./delivery_runtime/lib/source-provenance').sourceProvenance().fingerprint)")" = "$EXPECTED_SOURCE_FINGERPRINT"
@@ -68,23 +66,18 @@ jobs:
           print('VERCEL_PROJECT_BINDING=PASS')
           PY
 
-      - name: Restore Groq production secrets without breaking current Gemini deployment
+      - name: Confirm existing Groq production secret and restore Groq model freeze
         working-directory: delivery_runtime
         shell: bash
         run: |
           set -euo pipefail
-          upsert_sensitive() {
-            local key="$1" value="$2"
-            vercel env rm "$key" production --yes --token="$VERCEL_TOKEN" >/dev/null 2>&1 || true
-            printf '%s' "$value" | vercel env add "$key" production --sensitive --token="$VERCEL_TOKEN" >/dev/null
-          }
+          vercel env ls production --token="$VERCEL_TOKEN" > /tmp/vercel-env-list.txt
+          grep -q "GROQ_API_KEY" /tmp/vercel-env-list.txt || { echo "BLOCKED:VERCEL_GROQ_API_KEY_MISSING"; exit 2; }
           upsert_plain() {
             local key="$1" value="$2"
             vercel env rm "$key" production --yes --token="$VERCEL_TOKEN" >/dev/null 2>&1 || true
             printf '%s' "$value" | vercel env add "$key" production --token="$VERCEL_TOKEN" >/dev/null
           }
-          upsert_sensitive GROQ_API_KEY "$GROQ_API_KEY"
-          upsert_sensitive GM_API_SECRET "$GM_API_SECRET"
           upsert_plain GROQ_MODEL "openai/gpt-oss-120b"
           upsert_plain GM_FINAL_DELIVERY_AUTHORIZED "true"
           vercel pull --yes --environment=production --token="$VERCEL_TOKEN" >/dev/null
