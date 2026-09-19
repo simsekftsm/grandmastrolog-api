@@ -779,6 +779,7 @@ function buildFrozenNatalArtifact({
     parentAcceptedArtifact
   );
 
+  assertCapability('transaction','accepted_artifact');
   const delta = semanticDiff(parentAcceptedArtifact, candidateCore);
   authorizeDelta(delta, envelope);
 
@@ -819,10 +820,13 @@ function buildFrozenNatalArtifact({
     frozen:true
   };
 
-  return freezeDeep({
+  assertCapability('freeze','frozen_semantic_artifact');
+  const accepted = freezeDeep({
     ...preHash,
     artifact_sha256:sha256(preHash)
   });
+  verifyFrozenArtifact(accepted);
+  return accepted;
 }
 
 function verifyFrozenArtifact(artifact) {
