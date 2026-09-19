@@ -1,0 +1,46 @@
+name: Semantic Kernel RC Acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'delivery_runtime/semantic_kernel/**'
+      - 'delivery_runtime/contracts/gm-astroir-v1.schema.json'
+      - 'delivery_runtime/api/e2e-natal.js'
+      - 'delivery_runtime/lib/groq-binding.js'
+      - 'gm_integration/**'
+      - 'integration-server.js'
+      - '.github/workflows/semantic-kernel-rc-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-kernel-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install root dependencies
+        run: npm install --no-audit --no-fund
+      - name: Semantic kernel laws and adversarial acceptance
+        run: node --test delivery_runtime/semantic_kernel/tests/*.test.js
+      - name: Existing M1A delivery regression
+        working-directory: delivery_runtime
+        run: node --test tests/*.test.js
+      - name: Existing integration regression
+        run: node --test integration_tests/*.test.mjs
+      - name: Syntax gates
+        run: |
+          node --check delivery_runtime/semantic_kernel/kernel.js
+          node --check delivery_runtime/semantic_kernel/narrative-boundary.js
+          node --check delivery_runtime/api/e2e-natal.js
+          node --check integration-server.js
+      - name: Semantic boundary source assertions
+        run: |
+          grep -q 'buildFrozenNatalArtifact' delivery_runtime/api/e2e-natal.js
+          grep -q 'groqNarrativeInstructions(frozenArtifact)' delivery_runtime/api/e2e-natal.js
+          grep -q 'toLegacySemanticPayload(frozenArtifact' delivery_runtime/api/e2e-natal.js
+          ! grep -q 'canonicalizeModelPayload(modelPayload' delivery_runtime/api/e2e-natal.js
+          grep -q 'semantic_dependencies' integration-server.js
+          grep -q 'buildSemanticDependencyEvidence' gm_integration/natal-evidence.js
