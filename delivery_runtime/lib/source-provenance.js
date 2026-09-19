@@ -3,14 +3,14 @@
 // Physical source manifest for every Vercel runtime byte that can affect final semantic delivery.
 const FILES = Object.freeze({
   'delivery_runtime/api/delivery.js': '58c8ff9e97b7a02542d8d34afbcdbe8767752ee0',
-  'delivery_runtime/api/e2e-natal.js': '3ab7ba1eeb8c3f99cfe39b71bdeb3fa3aa821ef0',
+  'delivery_runtime/api/e2e-natal.js': '6e0cd4b0adc10b97c74d20c2dffba209eda1f42c',
   'delivery_runtime/api/health.js': '536e3061a23bab293aa9ebf5cf2cb2b41ab2b772',
   'delivery_runtime/api/model-natal.js': 'de4e0d922e4ae7537f2ae3073b82c722ea0314e3',
   'delivery_runtime/api/render-natal.js': '6e6e83ec0098b0cfde0e1f1aee2f7831a34a989f',
   'delivery_runtime/api/validate-natal.js': '80b215152fab6835bcb4e3d1cd8938462b107124',
   'delivery_runtime/contracts/gm-astroir-v1.schema.json': '142e3ef0d4c05a69567101809862122df05eb60a',
   'delivery_runtime/contracts/gm-natal-semantic-v1.schema.json': 'ee6fdd7c5a83aa9b897437987bbabaffddc6fa62',
-  'delivery_runtime/lib/delivery-validator.js': '748a719cef2e6cbf0354068f99dbe79515a35322',
+  'delivery_runtime/lib/delivery-validator.js': '08603200bdcb7ebe1fcc3548cc3bca4920669fb7',
   'delivery_runtime/lib/element-visual.js': '79f11584ff1888b7ff511b5cb3a240788969843c',
   'delivery_runtime/lib/foundation.js': '0089910026d3d0379c7bbea9b01bce3adaa8748e',
   'delivery_runtime/lib/groq-binding.js': '0c42bb26bd12435cb28ce15c5d7d309e6f4037c6',
@@ -36,7 +36,7 @@ const FILES = Object.freeze({
   'delivery_runtime/vercel.json': '45013816265b435af66145e71cfc90248ce1c814',
 });
 
-const FINGERPRINT = 'e87765d92467ae5b83dc5848c552485b2c0281de6958fa8d2f23d748812017a7';
+const FINGERPRINT = '62089aaca449f3e62aa6f8e746583ac379e543ac07828abd0751b3f61b5ce5ee';
 
 function sourceProvenance() {
   return {
