@@ -1,8 +1,12 @@
 import { createHash } from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
 import { DateTime } from 'luxon';
 
 const require = createRequire(import.meta.url);
+const MODULE_FILE = fileURLToPath(import.meta.url);
 const swisseph = require('swisseph');
 swisseph.swe_set_ephe_path('./ephe');
 
@@ -167,6 +171,50 @@ function stableSerialize(value) {
 
 function evidenceDigest(bindingInput) {
   return createHash('sha256').update(stableSerialize(bindingInput), 'utf8').digest('hex');
+}
+
+function sha256Bytes(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+function packageIdentity(packageName) {
+  const main = require.resolve(packageName);
+  let dir = path.dirname(main);
+  while (true) {
+    const candidate = path.join(dir, 'package.json');
+    if (fs.existsSync(candidate)) {
+      const bytes = fs.readFileSync(candidate);
+      const parsed = JSON.parse(bytes.toString('utf8'));
+      if (parsed.name === packageName) {
+        return { version: String(parsed.version || ''), sha256: sha256Bytes(bytes) };
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(`DEPENDENCY_PACKAGE_IDENTITY_MISSING:${packageName}`);
+}
+
+export function buildSemanticDependencyEvidence() {
+  const ephePath = path.resolve(process.cwd(), 'ephe/seas_18.se1');
+  if (!fs.existsSync(ephePath)) throw new Error('EPHEMERIS_DATA_MISSING');
+  const swissephPackage = packageIdentity('swisseph');
+  const timezoneTuple = {
+    tz: String(process.versions.tz || ''),
+    icu: String(process.versions.icu || ''),
+    node: String(process.version || '')
+  };
+  if (!timezoneTuple.tz || !timezoneTuple.icu) throw new Error('TIMEZONE_RUNTIME_IDENTITY_MISSING');
+  const implementationSha = sha256Bytes(fs.readFileSync(MODULE_FILE));
+  return Object.freeze({
+    ephemeris_engine: { version: `swisseph@${swissephPackage.version}`, sha256: swissephPackage.sha256 },
+    ephemeris_data: { version: 'seas_18.se1', sha256: sha256Bytes(fs.readFileSync(ephePath)) },
+    timezone_data: { version: `tz@${timezoneTuple.tz};icu@${timezoneTuple.icu};node@${timezoneTuple.node}`, sha256: sha256Bytes(Buffer.from(stableSerialize(timezoneTuple), 'utf8')) },
+    calculation_implementation: { version: EVIDENCE_ENGINE, sha256: implementationSha },
+    coordinate_canonicalization: { version: `${EVIDENCE_ENGINE}:coordinates-v1`, sha256: implementationSha },
+    house_calculation: { version: `${EVIDENCE_ENGINE}:placidus-v1`, sha256: implementationSha }
+  });
 }
 
 function placementEvidence(pointId, label, fullDegree, retrograde, house, requestId) {
