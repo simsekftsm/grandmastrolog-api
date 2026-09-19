@@ -69,9 +69,13 @@ test('same physical request freezes semantic state before narrative backend and 
   assert.equal(res.payload.semantic.astroir_version,'gm.astroir.v1');
   assert.match(res.payload.semantic.build_id,/^build_[a-f0-9]{64}$/);
   assert.match(res.payload.semantic.dependency_lock_id,/^dep_[a-f0-9]{64}$/);
+  assert.match(res.payload.semantic.semantic_artifact_id,/^sem_[a-f0-9]{64}$/);
   assert.match(res.payload.semantic.transition_id,/^tx_[a-f0-9]{64}$/);
   assert.match(res.payload.semantic.frozen_artifact_sha256,/^[a-f0-9]{64}$/);
   assert.match(res.payload.semantic.narrative_anchor_id,/^nar_[a-f0-9]{64}$/);
+  assert.equal(res.payload.delivery.semantic_binding.semantic_artifact_id,res.payload.semantic.semantic_artifact_id);
+  assert.equal(res.payload.delivery.semantic_binding.frozen_artifact_sha256,res.payload.semantic.frozen_artifact_sha256);
+  assert.equal(res.payload.delivery.semantic_binding.transition_id,res.payload.semantic.transition_id);
   const serialized=JSON.stringify(res.payload);
   assert.equal(serialized.includes('semantic_payload'),false);
   assert.equal(serialized.includes('raw_model_output'),false);
