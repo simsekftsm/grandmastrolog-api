@@ -87,23 +87,83 @@ function makeObservedState(bindingInput) {
   });
 }
 
+function houseNumber(house) {
+  const match = /^(\\d{1,2})\\.\\s*ev$/u.exec(String(house || '').trim());
+  return match ? match[1] : null;
+}
+
 function deriveClaims(bindingInput) {
   assertCapability('doctrine','deterministic_derivation_state');
   assertCapability('doctrine','defeasible_interpretation_state');
   const map = evidenceIndex(bindingInput);
   const derivations = [], claims = [];
-  for (const rule of doctrinePack.rules) {
-    if (!REQUIRED_SECTIONS.includes(rule.section_id)) fail('DOCTRINE_SCOPE_VIOLATION', rule.section_id);
-    if (!CLAIM_STATUSES.has(rule.status) || !ROBUSTNESS.has(rule.robustness) || !SALIENCE.has(rule.salience)) fail('DOCTRINE_RULE_INVALID', rule.rule_id);
-    const roots = rule.subjects.map((subject)=>placementBySubject(map,subject).evidence_id);
-    const proposition = interpolate(rule.template,rule.subjects,map);
-    const pid = propositionId(rule.section_id,proposition);
-    const did = derivationId(rule,roots,pid);
-    const cid = claimStateId(pid,rule.section_id,rule.status,rule.robustness,rule.salience);
+
+  const addClaim = ({ rule, roots, proposition, sectionId, status, robustness, salience }) => {
+    if (!REQUIRED_SECTIONS.includes(sectionId)) fail('DOCTRINE_SCOPE_VIOLATION', sectionId);
+    if (!CLAIM_STATUSES.has(status) || !ROBUSTNESS.has(robustness) || !SALIENCE.has(salience)) fail('DOCTRINE_RULE_INVALID', rule.rule_id);
+    const pid = propositionId(sectionId, proposition);
+    const did = derivationId(rule, roots, pid);
+    const cid = claimStateId(pid, sectionId, status, robustness, salience);
     const lid = lineageId(roots);
-    derivations.push({ derivation_id:did, rule_id:rule.rule_id, doctrine_pack_id:doctrinePack.pack_id, proposition_id:pid, parent_evidence_ids:[...roots].sort(), lineage_id:lid, epistemic_status:'DETERMINISTIC_DERIVATION' });
-    claims.push({ proposition_id:pid, claim_state_id:cid, derivation_id:did, section_id:rule.section_id, proposition, status:rule.status, robustness:rule.robustness, salience:rule.salience, epistemic_status:'INTERPRETIVE_CLAIM', provenance:{root_evidence_ids:[...roots].sort(), lineage_id:lid, rule_id:rule.rule_id} });
+    derivations.push({
+      derivation_id:did, rule_id:rule.rule_id, doctrine_pack_id:doctrinePack.pack_id,
+      proposition_id:pid, parent_evidence_ids:[...roots].sort(), lineage_id:lid,
+      epistemic_status:'DETERMINISTIC_DERIVATION'
+    });
+    claims.push({
+      proposition_id:pid, claim_state_id:cid, derivation_id:did, section_id:sectionId,
+      proposition, status, robustness, salience, epistemic_status:'INTERPRETIVE_CLAIM',
+      provenance:{root_evidence_ids:[...roots].sort(), lineage_id:lid, rule_id:rule.rule_id}
+    });
+  };
+
+  for (const rule of doctrinePack.rules) {
+    const roots = rule.subjects.map((subject)=>placementBySubject(map,subject).evidence_id);
+    addClaim({
+      rule, roots, proposition:interpolate(rule.template,rule.subjects,map), sectionId:rule.section_id,
+      status:rule.status, robustness:rule.robustness, salience:rule.salience
+    });
   }
+
+  for (const [sectionId, subjects] of Object.entries(doctrinePack.section_subjects || {})) {
+    if (!REQUIRED_SECTIONS.includes(sectionId)) fail('DOCTRINE_SCOPE_VIOLATION', sectionId);
+    for (const subject of subjects) {
+      const placement = placementBySubject(map, subject);
+      const subjectFunction = doctrinePack.subject_functions?.[subject];
+      const sign = doctrinePack.sign_semantics?.[placement.sign];
+      if (!subjectFunction || !sign?.expression || !sign?.tension) {
+        fail('DOCTRINE_SEMANTIC_LEXICON_MISSING', subject);
+      }
+      const signRule = { rule_id:`placement.sign.${sectionId}.${subject}.v1` };
+      addClaim({
+        rule:signRule,
+        roots:[placement.evidence_id],
+        sectionId,
+        status:'SUPPORTED',
+        robustness:'ROBUST',
+        salience:'SUPPORTING',
+        proposition:`${subjectFunction} ekseni ${placement.sign} yerleşiminde ${sign.expression} üzerinden çalışır; temel denge noktası ${sign.tension}.`
+      });
+
+      const hn = houseNumber(placement.house);
+      const houseMeaning = hn ? doctrinePack.house_semantics?.[hn] : null;
+      if (houseMeaning) {
+        const houseRule = { rule_id:`placement.house.${sectionId}.${subject}.v1` };
+        addClaim({
+          rule:houseRule,
+          roots:[placement.evidence_id],
+          sectionId,
+          status:'SUPPORTED',
+          robustness:'BOUNDARY-SENSITIVE',
+          salience:'MINOR',
+          proposition:`${subjectFunction} ekseninin ${placement.house} konumu, bu temayı ${houseMeaning} içinde görünür kılar.`
+        });
+      }
+    }
+  }
+
+  claims.sort((a,b)=>a.section_id.localeCompare(b.section_id)||a.salience.localeCompare(b.salience)||a.proposition_id.localeCompare(b.proposition_id));
+  derivations.sort((a,b)=>a.derivation_id.localeCompare(b.derivation_id));
   return freezeDeep({ deterministic_derivation_state:{derivations}, defeasible_interpretation_state:{claims} });
 }
 
