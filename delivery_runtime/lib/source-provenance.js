@@ -26,7 +26,7 @@ const FILES = Object.freeze({
   'delivery_runtime/public/elements/toprak.png': '8a64f0f2470b43b92bd33e0a506a65cfbc60a029',
   'delivery_runtime/semantic_kernel/dependency-runtime.js': 'aa0656c531c4fa36d07a64d766864cd32a619ef9',
   'delivery_runtime/semantic_kernel/doctrine/natal-core.v1.json': '081ea9ccd6e119dc111f904f117a66ef42410814',
-  'delivery_runtime/semantic_kernel/kernel.js': 'beed674dc5dcf379717da5deaf5045b023b8f647',
+  'delivery_runtime/semantic_kernel/kernel.js': '4ad4999d4fc3caec98da2f4d20a43dc3f067c3cf',
   'delivery_runtime/semantic_kernel/migration.js': '63cf52dd05c71d5d8aa46dbc2bc4956e23a727f6',
   'delivery_runtime/semantic_kernel/narrative-boundary.js': 'f2c51d3ba641edff64c3f9a4e26644559af23084',
   'delivery_runtime/semantic_kernel/pass-contracts.js': '80aacd6d231ca77fb480e92da755b11148bb6f2f',
@@ -36,7 +36,7 @@ const FILES = Object.freeze({
   'delivery_runtime/vercel.json': '45013816265b435af66145e71cfc90248ce1c814',
 });
 
-const FINGERPRINT = '28dc9445f0647c66993b42342a0b1212904e7e895dc4ecfa6ce52661265f40e8';
+const FINGERPRINT = '9fbe7f2154b8bbb6bff85d5cc1319aaa075434110e8c9c3c2ca37edac206225b';
 
 function sourceProvenance() {
   return {
