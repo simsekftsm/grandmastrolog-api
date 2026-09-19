@@ -152,8 +152,23 @@ function authorizeDelta(delta,envelope){
     }
   }
 }
-function transitionId(parentIdentity,envelope,delta,candidateCore){
-  return `tx_${sha256({parent:parentIdentity||'GENESIS',authority:envelope,delta,resulting_semantic_sha256:sha256(candidateCore)})}`;
+function transitionId(parentIdentity,envelope,delta,semanticArtifactId){
+  return `tx_${sha256({parent:parentIdentity||'GENESIS',authority:envelope,delta,resulting_semantic_artifact_id:semanticArtifactId})}`;
+}
+
+function semanticCoreFromArtifact(artifact){
+  return {
+    astroir_version:artifact.astroir_version,
+    schema_id:artifact.schema_id,
+    kernel_id:artifact.kernel_id,
+    build_id:artifact.build_id,
+    dependency_lock_id:artifact.dependency_lock_id,
+    canonical_input_sha256:artifact.canonical_input_sha256,
+    observed_calculated_state:artifact.observed_calculated_state,
+    deterministic_derivation_state:artifact.deterministic_derivation_state,
+    defeasible_interpretation_state:artifact.defeasible_interpretation_state,
+    dependency_graph:artifact.dependency_graph
+  };
 }
 
 function buildFrozenNatalArtifact({bindingInput,semanticDependencies,localDependencies={},parentAcceptedArtifact=null,authorityEnvelope=null}){
@@ -169,22 +184,26 @@ function buildFrozenNatalArtifact({bindingInput,semanticDependencies,localDepend
   const delta=semanticDiff(parentAcceptedArtifact,candidateCore);
   authorizeDelta(delta,envelope);
   if(parentAcceptedArtifact && delta.length===0) return parentAcceptedArtifact;
+  const semanticArtifactId=`sem_${sha256(candidateCore)}`;
   const parentIdentity=parentAcceptedArtifact?.artifact_sha256||null;
-  const tid=transitionId(parentIdentity,envelope,delta,candidateCore);
-  const transition={transition_id:tid,parent_accepted_artifact:parentIdentity,authorized_change_set:envelope.write_scopes,authority:envelope.authority_id,candidate_delta:delta,accepted_semantic_delta:delta,acceptance_policy:'gm.semantic.transaction.v1',acceptance_evidence:{capability_contracts_sha256:sha256(PASS_CONTRACTS),provenance_complete:true},resulting_artifact_semantic_sha256:sha256(candidateCore)};
-  const preHash={...candidateCore,transition,frozen:true};
+  const tid=transitionId(parentIdentity,envelope,delta,semanticArtifactId);
+  const transition={transition_id:tid,parent_accepted_artifact:parentIdentity,authorized_change_set:envelope.write_scopes,authority:envelope.authority_id,candidate_delta:delta,accepted_semantic_delta:delta,acceptance_policy:'gm.semantic.transaction.v1',acceptance_evidence:{capability_contracts_sha256:sha256(PASS_CONTRACTS),provenance_complete:true},resulting_semantic_artifact_id:semanticArtifactId};
+  const preHash={...candidateCore,semantic_artifact_id:semanticArtifactId,transition,frozen:true};
   return freezeDeep({...preHash,artifact_sha256:sha256(preHash)});
 }
 function verifyFrozenArtifact(artifact){
   if(!artifact||artifact.frozen!==true||artifact.astroir_version!==ASTROIR_VERSION) fail('SEMANTIC_FREEZE_REQUIRED');
   const copy={...artifact};delete copy.artifact_sha256;
   if(sha256(copy)!==artifact.artifact_sha256) fail('FROZEN_ARTIFACT_HASH_MISMATCH');
+  const expectedSemanticArtifactId=`sem_${sha256(semanticCoreFromArtifact(artifact))}`;
+  if(artifact.semantic_artifact_id!==expectedSemanticArtifactId) fail('SEMANTIC_ARTIFACT_ID_MISMATCH');
+  if(artifact.transition?.resulting_semantic_artifact_id!==artifact.semantic_artifact_id) fail('TRANSITION_RESULT_IDENTITY_MISMATCH');
   const claims=artifact.defeasible_interpretation_state?.claims;
   if(!Array.isArray(claims)||!claims.length) fail('PROVENANCE_REQUIRED');
   for(const c of claims) if(!c.provenance?.root_evidence_ids?.length||!c.derivation_id||!c.proposition_id||!c.claim_state_id) fail('PROVENANCE_REQUIRED');
   return true;
 }
-function sameSemanticSnapshot(a,b){return a.artifact_sha256===b.artifact_sha256&&a.build_id===b.build_id;}
+function sameSemanticSnapshot(a,b){return a.semantic_artifact_id===b.semantic_artifact_id&&a.build_id===b.build_id;}
 function independentSupportCount(artifact,claimIds){
   const ids=Array.isArray(claimIds)?claimIds:[];
   const claims=artifact.defeasible_interpretation_state.claims.filter((c)=>ids.includes(c.claim_state_id));
