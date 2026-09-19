@@ -47,7 +47,15 @@ function narrativeFor(binding){
       section_id:id,
       paragraphs:[{text:bySection.get(id)[0].proposition+' Bu doğrulanmış göstergeler birlikte okunur.',claim_refs:[bySection.get(id)[0].claim_state_id]}]
     })),
-    personal_seal:{motto:bySection.get('profilin')[0].proposition,claim_refs:[bySection.get('profilin')[0].claim_state_id]}
+    personal_seal:(()=>{
+      const profile=bySection.get('profilin');
+      const sun=profile.find((c)=>c.provenance.rule_ids.includes('placement.sign.profilin.sun.v1'));
+      const asc=profile.find((c)=>c.provenance.rule_ids.includes('placement.sign.profilin.ascendant.v1'));
+      return {
+        motto:'Kimlik, irade ve kendini ortaya koyma ile ilk yaklaşım ve dış tavır aynı kişisel imzada birleşir.',
+        claim_refs:[sun.claim_state_id,asc.claim_state_id]
+      };
+    })()
   };
 }
 async function invoke(mutator=(x)=>x){
