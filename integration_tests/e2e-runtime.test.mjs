@@ -63,7 +63,7 @@ async function invoke(mutator=(x)=>x){
 test('same physical request freezes semantic state before narrative backend and reaches final delivery',async()=>{
   primeEnv();
   const res=await invoke();
-  assert.equal(res.statusCode,200);
+  assert.equal(res.statusCode,200,JSON.stringify(res.payload));
   assert.equal(res.payload.ok,true);
   assert.equal(res.payload.delivery.delivery_state,'final_delivery_validated');
   assert.equal(res.payload.semantic.astroir_version,'gm.astroir.v1');
