@@ -52,9 +52,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN" --cwd=delivery_runtime
-          npx --yes vercel@latest build --prod --token="$VERCEL_TOKEN" --cwd=delivery_runtime
-          URL="$(npx --yes vercel@latest deploy --prebuilt --token="$VERCEL_TOKEN" --cwd=delivery_runtime)"
+          # Link to the existing project, but let Vercel perform the preview build
+          # remotely so preview-scoped secrets remain server-side and no
+          # production-target prebuilt artifact is promoted by accident.
+          npx --yes vercel@latest pull --yes --environment=preview --token="$VERCEL_TOKEN" --cwd=delivery_runtime
+          URL="$(npx --yes vercel@latest deploy --yes --token="$VERCEL_TOKEN" --cwd=delivery_runtime)"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "PREVIEW_URL=$URL" >> "$GITHUB_ENV"
           echo "RC preview: $URL" >> "$GITHUB_STEP_SUMMARY"
@@ -105,7 +107,7 @@ jobs:
           if [ "$STATUS" != 200 ]; then
             node - <<'NODE'
           const fs=require('node:fs'); let x={}; try{x=JSON.parse(fs.readFileSync('/tmp/e2e-out.json','utf8'))}catch{}
-          console.log('RC_E2E_DIAG '+JSON.stringify({status:process.env.STATUS,code:x.code,upstream_status:x.upstream_status,provider:x.upstream_provider}));
+          console.log('RC_E2E_DIAG '+JSON.stringify({code:x.code,upstream_status:x.upstream_status,provider:x.upstream_provider}));
           NODE
             exit 1
           fi
