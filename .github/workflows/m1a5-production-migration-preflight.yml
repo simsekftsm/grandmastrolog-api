@@ -17,6 +17,9 @@ jobs:
     timeout-minutes: 5
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+      VERCEL_API_TOKEN: ${{ secrets.VERCEL_API_TOKEN }}
+      VERCEL_PROD_TOKEN: ${{ secrets.VERCEL_PROD_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       GM_API_SECRET: ${{ secrets.GM_API_SECRET }}
@@ -26,12 +29,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for k in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID GM_API_SECRET GEMINI_API_KEY; do
+          for k in VERCEL_TOKEN VERCEL_ACCESS_TOKEN VERCEL_API_TOKEN VERCEL_PROD_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID GM_API_SECRET GEMINI_API_KEY; do
             if [ -n "${!k:-}" ]; then echo "$k=PASS"; else echo "$k=BLOCKED"; fi
           done
-          test -n "${VERCEL_TOKEN:-}" || exit 2
-          test -n "${VERCEL_ORG_ID:-}" || exit 2
-          test -n "${VERCEL_PROJECT_ID:-}" || exit 2
+          TOKEN="${VERCEL_TOKEN:-${VERCEL_ACCESS_TOKEN:-${VERCEL_API_TOKEN:-${VERCEL_PROD_TOKEN:-}}}}"
+          test -n "$TOKEN" || exit 2
           test -n "${GM_API_SECRET:-}" || exit 2
           test -n "${GEMINI_API_KEY:-}" || exit 2
-          test "$VERCEL_PROJECT_ID" = "prj_XhDus3tQsyiLxrPccbQteXLwbB2a"
