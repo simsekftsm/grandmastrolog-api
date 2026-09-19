@@ -43,6 +43,7 @@ function assertCapability(passId, namespace) {
   const contract = PASS_CONTRACTS[passId];
   if (!contract) throw new Error(`UNKNOWN_PASS:${passId}`);
   if (contract.may_not_write.includes(namespace)) throw new Error(`CAPABILITY_DENIED:${passId}:${namespace}`);
+  if (!contract.produces.includes(namespace)) throw new Error(`CAPABILITY_NOT_GRANTED:${passId}:${namespace}`);
   return true;
 }
 
